@@ -20,3 +20,11 @@ Both findings below were fixed before the first checkpoint. Their reproductions 
 - The documented `APP_ORIGIN=http://localhost:5173` matches browser mutation origins through the Vite proxy; backend configuration accepts its loopback hostname. D1 writes recheck module state and optimistic versions. Aggregate storage is enforced transactionally, including hidden records.
 - Existing tests cover persisted task edits, SQL constraints, signed identity verification, module preservation, private-data visibility, family-timezone calculations, and cache boundaries. This review did not rerun the full suite or production build while implementation work was concurrent; the final integrated check remains the release owner's responsibility.
 - Production Access, the actual account/hostname, live Workers AI inference, and physical-phone camera/install behavior remain unverified until their documented prerequisites are available. Local success is not evidence of live deployment.
+
+## Follow-up checkpoint review
+
+The reviewer independently repeated both race reproductions and confirmed their fixes. A 26,489-byte recipe containing 50 ingredients, 40 method steps, and a long source URL produced a nine-page A4 PDF with its final ingredient, method and source retained. Private member, note and unsaved-editor sentinels were absent; signing out removed the print sheet.
+
+Launcher review found that public health alone could report readiness despite invalid family configuration. Startup now also checks authenticated bootstrap status and discards the body without parsing or printing private data. All 41 launcher tests passed independently. The implementation owner also verified isolated startup, proxy access, origin enforcement, occupied-port handling, and owned-process cleanup. Review identified an inaccurate Node minimum in the README; the project now requires Node 24+, matching CI and its unflagged SQLite test support.
+
+The integrated follow-up checkpoint passed 300 unit/API/deployment/PWA/launcher tests, TypeScript and the production build, and all 45 browser tests together.

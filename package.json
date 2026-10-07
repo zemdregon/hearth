@@ -3,8 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:full": "node scripts/dev.mjs",
     "dev:api": "wrangler dev --local --ip 127.0.0.1 --port 8787",
     "build": "tsc --noEmit && vite build && node scripts/build-pwa.mjs",
     "typecheck": "tsc --noEmit",

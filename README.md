@@ -6,9 +6,13 @@ A private, modular home for your family: recipes, shared tasks, daily notes, str
 
 ## Local preview
 
-Use Node 22.12+ and npm. Run `npm ci` and `npm run dev`, then open http://localhost:5173 and choose the clearly labeled demo. Demo data lives only in memory and resets when you leave or reload; it is never sent to the API. The production application does not seed fictional family data.
+Use Node 24 LTS or newer and npm. Run `npm ci` and `npm run dev`, then open http://localhost:5173 and choose the clearly labeled demo. Demo data lives only in memory and resets when you leave or reload; it is never sent to the API. The production application does not seed fictional family data.
 
-For real local persistence:
+For real local persistence, run `npm run dev:full`. This builds the app, creates `.dev.vars` from the fictional example only when the file is absent, applies local D1 migrations, and starts the API and browser app together. Open http://localhost:5173; press Ctrl+C to stop both services. Existing local configuration and database records are preserved. Workers AI is disabled in this local session; recipe authoring and structured recipe-link extraction remain available.
+
+The launcher binds to loopback and never uses remote bindings. To choose different ports, use `npm run dev:full -- --api-port 8789 --ui-port 5174`. Use `--check` to validate configuration and available ports without changing files or starting services, or `--skip-build` to reuse a previous build.
+
+To run the services separately:
 
 1. Run `npm run build` to create Worker assets.
 2. Copy `.dev.vars.example` to `.dev.vars`.

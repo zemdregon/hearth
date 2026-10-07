@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowLeft, BookOpen, Camera, Check, Clock3, ExternalLink, FileText, Heart, Leaf, Link2, Minus, Plus, Search, Trash2, Users, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, BookOpen, Camera, Check, Clock3, ExternalLink, FileText, Heart, Leaf, Link2, Minus, Plus, Printer, Search, Trash2, Users, X } from 'lucide-react';
 import { useFamily, useRecords } from '../store';
 import { Badge, Button, EmptyState, Field, Modal, SectionHeader } from '../components/ui';
 import type { FamilyRecord, Ingredient, Recipe, RecipeImportRequest, RecipeImportResponse } from '../../shared/types';
@@ -118,24 +119,44 @@ function RecipeDetail({ record, busy, onBack, onFavorite, onEdit, onDelete }: { 
   const recipe = record.data;
   const [portions, setPortions] = useState(String(recipe.servings));
   const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [printError, setPrintError] = useState('');
   useEffect(() => { setPortions(String(recipe.servings)); setChecked(new Set()); }, [record.id, recipe.servings]);
   const parsed = Number(portions);
   const validPortions = Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000;
   const servings = validPortions ? parsed : recipe.servings;
   const ratio = servings / recipe.servings;
-  const source = (() => { try { const url = new URL(recipe.sourceUrl || ''); return url.protocol === 'https:' ? url.href : undefined; } catch { return undefined; } })();
+  const source = (() => { try { const url = new URL(recipe.sourceUrl || ''); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined; } catch { return undefined; } })();
+  function printRecipe() {
+    setPrintError('');
+    try { window.print(); }
+    catch { setPrintError('Printing is unavailable here. Try your browser’s Print command.'); }
+  }
   return <div className="recipe-detail stack">
-    <div className="recipe-detail-toolbar"><Button variant="ghost" onClick={onBack}><ArrowLeft size={17} />All recipes</Button><div><Button variant="secondary" onClick={onFavorite} disabled={busy} aria-pressed={recipe.favorite}><Heart size={17} fill={recipe.favorite ? 'currentColor' : 'none'} />{recipe.favorite ? 'Saved favorite' : 'Favorite'}</Button><Button onClick={onEdit}>Edit recipe</Button></div></div>
+    <RecipePrintSheet recipe={recipe} servings={servings} source={source} />
+    <div className="recipe-detail-toolbar"><Button variant="ghost" onClick={onBack}><ArrowLeft size={17} />All recipes</Button><div><Button variant="secondary" onClick={printRecipe} disabled={!validPortions}><Printer size={17} />Print recipe</Button><Button variant="secondary" onClick={onFavorite} disabled={busy} aria-pressed={recipe.favorite}><Heart size={17} fill={recipe.favorite ? 'currentColor' : 'none'} />{recipe.favorite ? 'Saved favorite' : 'Favorite'}</Button><Button onClick={onEdit}>Edit recipe</Button></div></div>
+    {printError && <p className="recipe-alert" role="alert">{printError}</p>}
     <div className="recipe-detail-heading"><div className="recipe-detail-tags">{recipe.tags.map(item => <Badge key={item}>{item}</Badge>)}</div><h1>{recipe.title}</h1>{recipe.description && <p>{recipe.description}</p>}<div className="recipe-detail-meta"><span><Clock3 size={16} />Prep {recipe.prepMinutes ? durationLabel(recipe.prepMinutes) : 'not set'}</span><span><Clock3 size={16} />Cook {recipe.cookMinutes ? durationLabel(recipe.cookMinutes) : 'not set'}</span><span><Users size={16} />Originally serves {recipe.servings}</span></div></div>
     <div className="recipe-detail-columns">
-      <section className="recipe-ingredients card"><div className="recipe-section-heading"><h2>Ingredients</h2><Leaf size={21} aria-hidden="true" /></div><div className="recipe-servings"><label htmlFor="recipe-portions">Servings</label><div><button type="button" className="recipe-icon-button" disabled={servings <= 1} onClick={() => setPortions(String(Math.max(1, servings - 1)))} aria-label="Decrease servings"><Minus size={16} /></button><input id="recipe-portions" type="number" min="1" max="1000" step="1" value={portions} aria-invalid={!validPortions} onChange={event => setPortions(event.target.value)} /><button type="button" className="recipe-icon-button" disabled={servings >= 1000} onClick={() => setPortions(String(Math.min(1000, servings + 1)))} aria-label="Increase servings"><Plus size={16} /></button></div></div>
-        {!validPortions && <p role="alert" className="recipe-error">Choose a whole number from 1 to 1,000. Original amounts shown.</p>}
-        <p className="recipe-scaling-note">Only ingredient amounts adjust. Unmeasured ingredients, quantities in the method, cooking times, and temperatures stay as written.</p>
+      <section className="recipe-ingredients card"><div className="recipe-section-heading"><h2>Ingredients</h2><Leaf size={21} aria-hidden="true" /></div><div className="recipe-servings"><label htmlFor="recipe-portions">Servings</label><div><button type="button" className="recipe-icon-button" disabled={servings <= 1} onClick={() => setPortions(String(Math.max(1, servings - 1)))} aria-label="Decrease servings"><Minus size={16} /></button><input id="recipe-portions" type="number" min="1" max="1000" step="1" value={portions} aria-invalid={!validPortions} aria-describedby={`recipe-scaling-note${!validPortions ? ' recipe-portions-error' : ''}`} onChange={event => setPortions(event.target.value)} /><button type="button" className="recipe-icon-button" disabled={servings >= 1000} onClick={() => setPortions(String(Math.min(1000, servings + 1)))} aria-label="Increase servings"><Plus size={16} /></button></div></div>
+        {(servings !== recipe.servings || !validPortions) && <button type="button" className="recipe-reset-servings" onClick={() => setPortions(String(recipe.servings))}>Reset to {recipe.servings} servings</button>}
+        {!validPortions && <p id="recipe-portions-error" role="alert" className="recipe-error">Choose a whole number from 1 to 1,000. Original amounts shown.</p>}
+        <p id="recipe-scaling-note" className="recipe-scaling-note">Only ingredient amounts adjust. Unmeasured ingredients, quantities in the method, cooking times, and temperatures stay as written.</p>
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{validPortions ? `Ingredient amounts shown for ${servings} ${servings === 1 ? 'serving' : 'servings'}.` : ''}</p>
         <ul className="recipe-ingredient-list">{recipe.ingredients.map((ingredient, index) => <li key={index}><label className={checked.has(index) ? 'checked' : ''}><input type="checkbox" checked={checked.has(index)} onChange={() => setChecked(previous => { const next = new Set(previous); if (next.has(index)) next.delete(index); else next.add(index); return next; })} /><span><strong>{[ingredientAmount(ingredient, ratio), ingredient.unit].filter(Boolean).join(' ')}</strong>{ingredient.quantity !== null || ingredient.unit ? ' ' : ''}{ingredient.name}{ingredient.note && <small>{ingredient.note}</small>}</span></label></li>)}</ul>
       </section>
       <section className="recipe-method"><h2>Let’s make it</h2><ol className="recipe-step-list">{recipe.steps.map((step, index) => <li key={index}><span className="recipe-step-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><p>{step}</p></li>)}</ol>{source && <a className="recipe-source" href={source} target="_blank" rel="noopener noreferrer">Visit the original recipe<ExternalLink size={14} /></a>}<p className="recipe-cook-note">Make it yours. Taste as you go, and check ingredient labels for your family’s dietary needs.</p></section>
     </div><div className="recipe-delete-row"><Button variant="ghost" onClick={onDelete}><Trash2 size={15} />Delete recipe</Button></div>
   </div>;
+}
+
+function RecipePrintSheet({ recipe, servings, source }: { recipe: Recipe; servings: number; source?: string }) {
+  const ratio = servings / recipe.servings;
+  return createPortal(<article className="recipe-print-sheet" aria-label="Recipe print sheet">
+    <header><p className="recipe-print-brand">Hearth · saved recipe</p><h1>{recipe.title}</h1>{recipe.description && <p>{recipe.description}</p>}<p className="recipe-print-meta"><strong>Serves {servings}</strong>{recipe.prepMinutes > 0 && <> · Prep {durationLabel(recipe.prepMinutes)}</>}{recipe.cookMinutes > 0 && <> · Cook {durationLabel(recipe.cookMinutes)}</>}</p><p className="recipe-print-scaling">{servings !== recipe.servings ? `Ingredient amounts scaled from ${recipe.servings} to ${servings} servings.` : `Original recipe for ${recipe.servings} ${recipe.servings === 1 ? 'serving' : 'servings'}.`} Unmeasured ingredients, quantities in the method, cooking times, and temperatures stay as written.</p></header>
+    <section><h2>Ingredients</h2><ul>{recipe.ingredients.map((ingredient, index) => <li key={index}><span>{[ingredientAmount(ingredient, ratio), ingredient.unit, ingredient.name].filter(Boolean).join(' ')}</span>{ingredient.note && <span className="recipe-print-ingredient-note"> — {ingredient.note}</span>}</li>)}</ul></section>
+    <section><h2>Method</h2><ol>{recipe.steps.map((step, index) => <li key={index}><p>{step}</p></li>)}</ol></section>
+    {source && <footer><strong>Original recipe:</strong> <span>{source}</span></footer>}
+  </article>, document.body);
 }
 
 type IngredientDraft = { id: string; name: string; amount: string; unit: string; note: string };
@@ -171,8 +192,8 @@ function RecipeEditor({ initial, warnings, saving, onSave, onCancel }: { initial
     if (invalidAmount) return setError(`Check the amount for ${invalidAmount.name}. Use a number, fraction, or range such as 1–2; leave it blank for “to taste”.`);
     if (recipeTags.length > 12 || recipeTags.some(value => value.length > 40)) return setError('Use up to 12 tags, with 40 characters or fewer each.');
     if (sourceUrl.trim()) {
-      try { const url = new URL(sourceUrl); if (url.protocol !== 'https:' || url.username || url.password) throw new Error(); }
-      catch { return setError('The source link must be a valid HTTPS URL without a username or password.'); }
+      try { const url = new URL(sourceUrl); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error(); }
+      catch { return setError('The source link must be a valid HTTP or HTTPS URL without a username or password.'); }
     }
     const recipe: Recipe = { title: title.trim(), description: description.trim(), servings: Number(servings), prepMinutes: Number(prep), cookMinutes: Number(cook), ingredients: ingredients.map(item => ({ name: item.name.trim(), unit: item.unit.trim(), ...parseQuantity(item.amount), ...(item.note.trim() ? { note: item.note.trim() } : {}) })), steps: steps.map(item => item.text.trim()), tags: recipeTags, favorite: initial.favorite, ...(sourceUrl.trim() ? { sourceUrl: sourceUrl.trim() } : {}) };
     if (new TextEncoder().encode(JSON.stringify(recipe)).byteLength > 32_768) return setError('This recipe is too long to save. Shorten the notes or instructions, then try again.');
