@@ -3,13 +3,14 @@ import { Heart, Lightbulb, MessageCircleHeart, Pencil, Sparkles, UserRound } fro
 import type { FamilyRecord, Profile } from '../../shared/types';
 import { formatDate } from '../../shared/calendar';
 import { questionById } from '../../shared/questions';
+import { answerPairComplete, sameQuestionPair } from '../../shared/question-pairing';
 import { useFamily, useRecords } from '../store';
 import { Badge, Button, EmptyState, Field, Modal, SectionHeader } from '../components/ui';
 import { avatarTextColor, FamilyFeedback, linesToList, personInitials, useFamilyMutation } from './family-ui';
 import './family-modules.css';
 
 export function Profiles() {
-  const { user, members, addRecord, updateRecord } = useFamily();
+  const { user, members, questionPair, addRecord, updateRecord } = useFamily();
   const profiles = useRecords('profile');
   const answers = useRecords('answer');
   const mutation = useFamilyMutation();
@@ -21,7 +22,10 @@ export function Profiles() {
   const own = selected.id === user.id;
   const profile = profiles.find(record => record.ownerId === selected.id);
   const ownProfile = profiles.find(record => record.ownerId === user.id);
-  const sharedAnswers = answers.filter(answer => answer.ownerId === selected.id && answer.data.shareToProfile && questionById(answer.data.questionId)?.choices[answer.data.choice] !== undefined).sort((a, b) => b.data.date.localeCompare(a.data.date));
+  // Nonowners receive only released opt-ins; their snapshot can legitimately
+  // omit the other partner's private answer, so trust server release for them.
+  const sharedAnswers = answers.filter(answer => answer.ownerId === selected.id && answer.data.shareToProfile && sameQuestionPair(answer.data.participantIds, questionPair) && (!own || answerPairComplete(answer, answers, questionPair)) && questionById(answer.data.questionId)?.choices[answer.data.choice] !== undefined).sort((a, b) => b.data.date.localeCompare(a.data.date));
+  const pendingPreferences = own ? answers.filter(answer => answer.ownerId === user.id && answer.data.shareToProfile && sameQuestionPair(answer.data.participantIds, questionPair) && !answerPairComplete(answer, answers, questionPair)).length : 0;
   const preferences = sharedAnswers.filter((answer, index) => sharedAnswers.findIndex(item => item.data.questionId === answer.data.questionId) === index);
 
   function openForm() {
@@ -48,7 +52,7 @@ export function Profiles() {
       <section className="card family-profile-section"><h3><Heart size={19} aria-hidden="true" />Little things {own ? 'I' : 'they'} love</h3>{profile?.data.loves.length ? <div className="family-love-list">{profile.data.loves.map(love => <span key={love} className="family-love">{love}</span>)}</div> : <div className="family-profile-empty"><Heart size={25} aria-hidden="true" /><p>{own ? 'Favorite foods, small comforts, hobbies, places. What makes you happy?' : 'Their favorite things will appear here when they add them.'}</p>{own && <Button variant="ghost" size="sm" onClick={openForm}>Add your favorites</Button>}</div>}</section>
       <section className="card family-profile-section"><h3><Lightbulb size={19} aria-hidden="true" />Thoughtful little ideas</h3><p className="muted family-profile-hint">{own ? 'Ways your family can make your day.' : `Ways to make ${selected.name}'s day.`}</p>{profile?.data.suggestions.length ? <ul className="family-suggestions">{profile.data.suggestions.map(suggestion => <li key={suggestion}><Sparkles size={15} aria-hidden="true" /><span>{suggestion}</span></li>)}</ul> : <div className="family-profile-empty"><Lightbulb size={25} aria-hidden="true" /><p>{own ? 'A gift idea, a date you would enjoy, or a small way someone could help.' : 'A little space for their wishes and suggestions.'}</p>{own && <Button variant="ghost" size="sm" onClick={openForm}>Share an idea</Button>}</div>}</section>
     </div>
-    <section className="stack" aria-labelledby="profile-preferences"><div className="family-section-line"><h2 id="profile-preferences"><MessageCircleHeart size={20} aria-hidden="true" />Getting to know {own ? 'me' : selected.name}</h2><Badge>{preferences.length} shared {preferences.length === 1 ? 'answer' : 'answers'}</Badge></div><p className="muted family-profile-disclosure">Daily question answers {own ? 'you have' : `${selected.name} has`} chosen to share on {own ? 'your' : 'their'} profile.</p>{preferences.length ? <div className="grid-2">{preferences.map(answer => {
+    <section className="stack" aria-labelledby="profile-preferences"><div className="family-section-line"><h2 id="profile-preferences"><MessageCircleHeart size={20} aria-hidden="true" />Getting to know {own ? 'me' : selected.name}</h2><Badge>{preferences.length} shared {preferences.length === 1 ? 'answer' : 'answers'}</Badge></div><p className="muted family-profile-disclosure">Preferences {own ? 'you have' : `${selected.name} has`} chosen to share with the whole family after both partners answered.</p>{pendingPreferences > 0 && <p className="wellness-notice" role="status">{pendingPreferences} {pendingPreferences === 1 ? 'preference is' : 'preferences are'} waiting for your partner before appearing on your family profile.</p>}{preferences.length ? <div className="grid-2">{preferences.map(answer => {
       const question = questionById(answer.data.questionId)!;
       return <article className="card family-preference" key={answer.id}><span className="family-preference-label">{question.profileLabel}</span><p>{question.choices[answer.data.choice]}</p><time dateTime={answer.data.date}>Shared {formatDate(answer.data.date)}</time></article>;
     })}</div> : <EmptyState icon={<UserRound size={27} />} title="There is always more to discover" description={own ? 'When you answer a daily question, you can choose to add your answer to your profile.' : 'Only answers your family member chooses to share will appear here.'} />}</section>

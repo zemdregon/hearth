@@ -2,6 +2,9 @@
 DEV_AUTH="true"
 APP_ORIGIN="http://localhost:5173"
 FAMILY_TIMEZONE="UTC"
+# Optional: JSON pair of stable member ids, or null to disable daily questions.
+# Omission pairs only a two-member household; larger households need an explicit pair.
+# FAMILY_QUESTION_PAIR='["alex","sam"]'
 FAMILY_MEMBERS='[{"id":"alex","name":"Alex","email":"alex@example.test","role":"admin","color":"#557461"},{"id":"sam","name":"Sam","email":"sam@example.test","role":"member","color":"#b56d51"}]'
 # Workers AI requires a configured account for real model calls. The UI demo and
 # manually authored recipes work without Cloudflare credentials.

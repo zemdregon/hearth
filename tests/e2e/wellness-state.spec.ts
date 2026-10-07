@@ -25,7 +25,7 @@ test('a question draft survives a concurrent update and submits its original ver
   const fixture = { ...createDemo(), demo: false };
   const date = todayInTimezone('UTC');
   const question = questionForDate(date);
-  let current: FamilyRecord<'answer'> = { id: 'answer-alex', kind: 'answer', ownerId: 'alex', version: 1, createdAt: `${date}T08:00:00Z`, updatedAt: `${date}T08:00:00Z`, data: { date, questionId: question.id, choice: 0, shareToProfile: false } };
+  let current: FamilyRecord<'answer'> = { id: 'answer-alex', kind: 'answer', ownerId: 'alex', version: 1, createdAt: `${date}T08:00:00Z`, updatedAt: `${date}T08:00:00Z`, data: { date, questionId: question.id, choice: 0, shareToProfile: false, participantIds: ['alex', 'sam'] } };
   fixture.records.push(current);
   await page.route('**/api/bootstrap', route => route.fulfill({ json: fixture }));
   const sentVersions: number[] = [];
@@ -94,7 +94,7 @@ test('an unsaved first answer does not silently replace one created in another w
   await page.goto('/#questions');
   await page.locator('.question-choice').nth(1).click();
   await page.getByRole('checkbox', { name: 'Add this preference to my profile' }).check();
-  fixture.records.push({ id: 'answer-other-window', kind: 'answer', ownerId: 'alex', version: 1, createdAt: `${date}T08:00:00Z`, updatedAt: `${date}T08:00:00Z`, data: { date, questionId: question.id, choice: 2, shareToProfile: false } });
+  fixture.records.push({ id: 'answer-other-window', kind: 'answer', ownerId: 'alex', version: 1, createdAt: `${date}T08:00:00Z`, updatedAt: `${date}T08:00:00Z`, data: { date, questionId: question.id, choice: 2, shareToProfile: false, participantIds: ['alex', 'sam'] } });
   await Promise.all([
     page.waitForResponse(response => response.url().endsWith('/api/bootstrap')),
     page.evaluate(() => window.dispatchEvent(new Event('online'))),

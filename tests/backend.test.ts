@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import app from '../src/server/index';
 import type { Env } from '../src/server/env';
-import type { Bootstrap, FamilyRecord, User } from '../src/shared/types';
+import type { Answer, Bootstrap, FamilyRecord, User } from '../src/shared/types';
 import { questionForDate } from '../src/shared/questions';
 import { consumeLimit, createRecord, getRecord, updateRecord } from '../src/server/db';
 import { validateData } from '../src/server/validation';
@@ -49,6 +49,8 @@ let env: Env;
 let fixture: ReturnType<typeof database>;
 const base = 'http://localhost:8787';
 const task = { title: 'Buy apples', done: false };
+const lee: User = { id: 'lee', name: 'Lee', email: 'lee@example.com', role: 'admin', color: '#555555' };
+const answerData = (date = '2026-01-01', changes: Partial<Answer> = {}): Answer => ({ date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, participantIds: ['alex', 'sam'], ...changes });
 
 function request(path: string, options: { method?: string; body?: unknown; user?: string; headers?: Record<string, string>; url?: string; configuration?: Partial<Env> } = {}) {
   return app.request(`${options.url || base}${path}`, {
@@ -63,6 +65,13 @@ async function create(kind: string, data: unknown, user?: string): Promise<Famil
   return response.json() as Promise<FamilyRecord>;
 }
 async function records(user?: string) { return ((await (await request('/api/bootstrap', { user })).json()) as Bootstrap).records; }
+async function legacyAnswer(user = members[0], changes: Partial<Answer> = {}) {
+  const data = answerData('2026-01-01', { participantIds: undefined, ...changes });
+  const id = crypto.randomUUID();
+  await env.DB.prepare('INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, 1)')
+    .bind(id, 'answer', user.id, JSON.stringify(data), '2026-01-01T12:00:00.000Z', '2026-01-01T12:00:00.000Z').run();
+  return await getRecord(env.DB, id) as FamilyRecord<'answer'>;
+}
 
 beforeEach(() => {
   fixture = database();
@@ -212,16 +221,14 @@ describe('private data, family visibility, and module boundaries', () => {
     expect(await records()).toHaveLength(1);
   });
 
-  it('reveals questionnaire answers only once every configured member has answered', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([...members, { id: 'lee', name: 'Lee', email: 'lee@example.com', role: 'member', color: '#555555' }]);
-    const date = '2026-01-01';
-    const answer = { date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false };
-    await create('answer', answer);
+  it('reveals scoped answers to both partners only after both answer the same question', async () => {
+    const answer = answerData();
+    const first = await create('answer', { ...answer, participantIds: ['sam', 'alex'] });
+    expect((first as FamilyRecord<'answer'>).data.participantIds).toEqual(['alex', 'sam']);
     expect(await records('sam@example.com')).toHaveLength(0);
     await create('answer', { ...answer, choice: 1 }, 'sam@example.com');
-    expect(await records()).toHaveLength(1);
-    await create('answer', { ...answer, choice: 2 }, 'lee@example.com');
-    expect(await records()).toHaveLength(3);
+    expect(await records()).toHaveLength(2);
+    expect(await records('sam@example.com')).toHaveLength(2);
     expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: { ...answer, questionId: 'fake-question' } } })).status).toBe(400);
   });
 
@@ -251,6 +258,141 @@ describe('private data, family visibility, and module boundaries', () => {
     expect((await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: 'Soup' } })).status).toBe(403);
     await request('/api/modules/tasks', { method: 'PATCH', body: { enabled: true } });
     expect((await records())[0].id).toBe(item.id);
+  });
+});
+
+describe('question pair configuration, immutable scope, and family consent', () => {
+  it('infers only a two-person pair and includes it in bootstrap and export', async () => {
+    for (const path of ['/api/bootstrap', '/api/export']) {
+      expect((await (await request(path)).json() as Bootstrap).questionPair).toEqual(['alex', 'sam']);
+    }
+    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).questionPair).toBeNull();
+    expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: answerData() } })).status).toBe(403);
+    env.FAMILY_MEMBERS = JSON.stringify(members);
+    env.FAMILY_QUESTION_PAIR = 'null';
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).questionPair).toBeNull();
+    expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: answerData() } })).status).toBe(403);
+  });
+
+  it('fails closed for an invalid configured pair', async () => {
+    for (const pair of ['["alex","alex"]', '["alex","unknown"]', '["alex"]', 'broken']) {
+      expect((await request('/api/bootstrap', { configuration: { FAMILY_QUESTION_PAIR: pair } })).status).toBe(503);
+    }
+  });
+
+  it('requires the submitted scope, rejects stale or forged pairs, and excludes other family members', async () => {
+    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
+    for (const participantIds of [undefined, ['alex', 'lee'], ['alex', 'stranger']]) {
+      expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: { ...answerData(), participantIds } } })).status).toBe(409);
+    }
+    expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: answerData('2026-01-01', { participantIds: ['alex', 'alex'] }) } })).status).toBe(400);
+    expect((await request('/api/records', { method: 'POST', user: lee.email, body: { kind: 'answer', data: answerData() } })).status).toBe(403);
+    expect(await records()).toHaveLength(0);
+  });
+
+  it('releases only opted-in answers to a third member, including an administrator, after paired completion', async () => {
+    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    env.FAMILY_QUESTION_PAIR = '["sam","alex"]';
+    const first = await create('answer', answerData('2026-01-01', { shareToProfile: true }));
+    expect(await records(lee.email)).toHaveLength(0);
+    const partner = await create('answer', answerData('2026-01-01', { choice: 1 }), members[1].email);
+    expect((await records(lee.email)).map(record => record.id)).toEqual([first.id]);
+    expect((await (await request('/api/export', { user: lee.email })).json() as Bootstrap).records.map(record => record.id)).toEqual([first.id]);
+    expect(await records()).toHaveLength(2);
+    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: lee.email, body: { version: 1, data: { ...partner.data, shareToProfile: true } } })).status).toBe(403);
+    expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, shareToProfile: false } } })).status).toBe(200);
+    expect(await records(lee.email)).toHaveLength(0);
+    expect(await records(members[1].email)).toHaveLength(2);
+  });
+
+  it('removes partner and profile release when a paired answer is deleted', async () => {
+    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
+    await create('answer', answerData('2026-01-01', { shareToProfile: true }));
+    const partner = await create('answer', answerData(), members[1].email);
+    expect(await records(lee.email)).toHaveLength(1);
+    expect((await request(`/api/records/${partner.id}`, { method: 'DELETE', user: members[1].email, body: { version: 1 } })).status).toBe(200);
+    expect(await records(lee.email)).toHaveLength(0);
+    expect(await records(members[1].email)).toHaveLength(0);
+  });
+
+  it('rejects edits to an answer date, question, or participant tuple', async () => {
+    const first = await create('answer', answerData());
+    for (const changes of [{ date: '2025-12-31' }, { questionId: 'different' }, { participantIds: ['alex', 'lee'] }, { participantIds: ['sam', 'alex'] }, { participantIds: undefined }]) {
+      expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, ...changes } } })).status).toBe(400);
+    }
+    expect((await getRecord(env.DB, first.id)).version).toBe(1);
+  });
+
+  it('keeps legacy answers author-only even with old profile consent and both legacy answers present', async () => {
+    const first = await legacyAnswer(members[0], { shareToProfile: true });
+    const partner = await legacyAnswer(members[1], { shareToProfile: true });
+    expect((await records()).map(record => record.id)).toEqual([first.id]);
+    expect((await records(members[1].email)).map(record => record.id)).toEqual([partner.id]);
+    expect((await (await request('/api/export')).json() as Bootstrap).records.map(record => record.id)).toEqual([first.id]);
+    expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, choice: 1, shareToProfile: false } } })).status).toBe(200);
+    const current = await getRecord(env.DB, first.id) as FamilyRecord<'answer'>;
+    expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 2, data: { ...current.data, shareToProfile: true } } })).status).toBe(409);
+    expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 2, data: { ...current.data, participantIds: ['alex', 'sam'] } } })).status).toBe(400);
+    expect((await getRecord(env.DB, first.id) as FamilyRecord<'answer'>).data.participantIds).toBeUndefined();
+  });
+
+  it('preserves authors’ history after pairing changes without reassigning it to a new partner', async () => {
+    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
+    const first = await create('answer', answerData('2026-01-01', { shareToProfile: true }));
+    const partner = await create('answer', answerData(), members[1].email);
+    env.FAMILY_QUESTION_PAIR = '["alex","lee"]';
+    expect((await records()).map(record => record.id)).toEqual([first.id]);
+    expect((await records(members[1].email)).map(record => record.id)).toEqual([partner.id]);
+    expect(await records(lee.email)).toHaveLength(0);
+    expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, choice: 1, shareToProfile: false } } })).status).toBe(200);
+    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: members[1].email, body: { version: 1, data: { ...partner.data, choice: 1 } } })).status).toBe(200);
+    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: members[1].email, body: { version: 2, data: { ...partner.data, shareToProfile: true } } })).status).toBe(409);
+    const nextDay = answerData('2026-01-02', { participantIds: ['alex', 'lee'] });
+    await create('answer', nextDay);
+    await create('answer', nextDay, lee.email);
+    expect((await records(lee.email)).map(record => record.id)).not.toContain(first.id);
+  });
+
+  it('preserves private owner reads and edits while pairing is disabled or a partner is removed', async () => {
+    const first = await create('answer', answerData());
+    await create('answer', answerData(), members[1].email);
+    env.FAMILY_QUESTION_PAIR = 'null';
+    expect((await records()).map(record => record.id)).toEqual([first.id]);
+    expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, choice: 1 } } })).status).toBe(200);
+    env.FAMILY_MEMBERS = JSON.stringify([members[0], lee]);
+    env.FAMILY_QUESTION_PAIR = undefined;
+    expect(await records(lee.email)).toHaveLength(0);
+    expect((await records()).map(record => record.id)).toEqual([first.id]);
+  });
+
+  it('blocks same-day submission if either current participant already answered under another scope', async () => {
+    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
+    const first = await create('answer', answerData());
+    env.FAMILY_QUESTION_PAIR = '["alex","lee"]';
+    for (const user of [members[0].email, lee.email]) {
+      expect((await request('/api/records', { method: 'POST', user, body: { kind: 'answer', data: answerData('2026-01-01', { participantIds: ['alex', 'lee'] }) } })).status).toBe(409);
+    }
+    expect((await getRecord(env.DB, first.id)).data).toEqual(first.data);
+    expect(await records(lee.email)).toHaveLength(0);
+  });
+
+  it('blocks legacy partner collisions inside the insert without upgrading the stored answer', async () => {
+    const legacy = await legacyAnswer(members[0]);
+    await expect(createRecord(env.DB, members[1], 'answer', answerData())).rejects.toMatchObject({ status: 409 });
+    expect((await request('/api/records', { method: 'POST', user: members[1].email, body: { kind: 'answer', data: answerData() } })).status).toBe(409);
+    expect((await getRecord(env.DB, legacy.id)).data).toEqual(legacy.data);
+  });
+
+  it('rechecks incompatible partner scope in the atomic insert when configuration changes between requests', async () => {
+    await createRecord(env.DB, members[0], 'answer', answerData());
+    await expect(createRecord(env.DB, lee, 'answer', answerData('2026-01-01', { participantIds: ['alex', 'lee'] }))).rejects.toMatchObject({ status: 409 });
+    await expect(createRecord(env.DB, members[1], 'answer', answerData())).resolves.toMatchObject({ ownerId: 'sam' });
+    await expect(createRecord(env.DB, members[0], 'answer', answerData())).rejects.toMatchObject({ status: 409 });
   });
 });
 

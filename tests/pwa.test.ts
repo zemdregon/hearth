@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { createHash, webcrypto } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 const origin = 'https://family.example.com';
@@ -16,7 +17,7 @@ const basicResponse = (body: string, contentType: string, headers: Record<string
   return response;
 };
 
-function workerHarness(network: (request: CacheKey, init?: RequestInit) => Promise<Response> = async () => basicResponse('export {}', 'text/javascript'), build?: { precache: string[]; revision: string }) {
+function workerHarness(network: (request: CacheKey, init?: RequestInit) => Promise<Response> = async () => basicResponse('export {}', 'text/javascript'), build?: { precache: string[]; revision: string; documentHash?: string }) {
   const storage = new Map<string, Map<string, Response>>();
   const storedRequestHeaders = new Map<string, Map<string, Headers>>();
   const listeners = new Map<string, (event: EventLike) => void>();
@@ -57,8 +58,8 @@ function workerHarness(network: (request: CacheKey, init?: RequestInit) => Promi
   const claim = vi.fn().mockResolvedValue(undefined);
   const skipWaiting = vi.fn().mockResolvedValue(undefined);
   runInNewContext(readFileSync(resolve('public/sw.js'), 'utf8'), {
-    self: { location: { origin }, __HEARTH_PRECACHE: build?.precache, __HEARTH_REVISION: build?.revision, addEventListener(type: string, handler: (event: EventLike) => void) { listeners.set(type, handler); }, clients: { claim }, skipWaiting },
-    caches: cacheStorage, fetch, URL, Response, Request, Headers, console,
+    self: { location: { origin }, __HEARTH_PRECACHE: build?.precache, __HEARTH_REVISION: build?.revision, __HEARTH_DOCUMENT_HASH: build?.documentHash, addEventListener(type: string, handler: (event: EventLike) => void) { listeners.set(type, handler); }, clients: { claim }, skipWaiting },
+    caches: cacheStorage, fetch, URL, Response, Request, Headers, console, TextDecoder, crypto: webcrypto,
   });
   async function dispatch(type: string, request?: RequestLike) {
     const pending: Promise<unknown>[] = [];
@@ -151,10 +152,38 @@ describe('service worker privacy and cache routing', () => {
     expect(worker.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('uses only the active Hearth cache for offline navigation', async () => {
+    const worker = workerHarness(async () => { throw new TypeError('Offline'); });
+    const unrelated = await worker.cacheStorage.open('another-app-cache');
+    await unrelated.put('/index.html', basicResponse('<html>Unrelated cached document</html>', 'text/html'));
+    const own = await worker.cacheStorage.open('hearth-shell-dev');
+    await own.put('/index.html', basicResponse('<html>Working Hearth shell</html>', 'text/html'));
+    const result = await worker.dispatch('fetch', { url: `${origin}/`, method: 'GET', mode: 'navigate' });
+    expect(await result.response?.text()).toBe('<html>Working Hearth shell</html>');
+    expect(worker.storage.has('another-app-cache')).toBe(true);
+  });
+
+  it.each([true, false])('requires the exact built document before activation (matching document: %s)', async matches => {
+    const document = readFileSync(resolve('index.html'), 'utf8');
+    const documentHash = createHash('sha256').update(document).digest('hex');
+    const worker = workerHarness(async () => basicResponse(matches ? document : document.replace('/src/client/main.tsx', '/assets/different-build.js'), 'text/html'), {
+      precache: ['/index.html'], revision: 'document-verification', documentHash,
+    });
+    if (matches) {
+      await worker.dispatch('install');
+      expect(worker.skipWaiting).toHaveBeenCalledOnce();
+    } else {
+      await expect(worker.dispatch('install')).rejects.toThrow('could not be installed completely');
+      expect(worker.storage.has('hearth-shell-document-verification')).toBe(false);
+      expect(worker.skipWaiting).not.toHaveBeenCalled();
+    }
+  });
+
   it('never precaches authentication or challenge HTML during install', async () => {
     const worker = workerHarness(async () => basicResponse('<!doctype html><title>Cloudflare Access</title><form>Sign in to this application</form>', 'text/html'));
-    await worker.dispatch('install');
+    await expect(worker.dispatch('install')).rejects.toThrow('could not be installed completely');
     expect([...worker.storage.values()].flatMap(cache => [...cache.keys()])).toEqual([]);
+    expect(worker.skipWaiting).not.toHaveBeenCalled();
     for (const [, init] of worker.fetch.mock.calls) {
       expect(init?.redirect).toBe('error');
       expect(init?.credentials).toBe('same-origin');
@@ -162,7 +191,7 @@ describe('service worker privacy and cache routing', () => {
   });
 
   it('cleans old Hearth cache versions without deleting unrelated caches', async () => {
-    const worker = workerHarness(async () => { throw new Error('Offline'); });
+    const worker = workerHarness(undefined, { precache: ['/assets/new.js'], revision: 'complete-new-build' });
     await worker.cacheStorage.open('hearth-shell-obsolete-build');
     await worker.cacheStorage.open('another-app-cache');
     await worker.dispatch('install');
@@ -170,6 +199,32 @@ describe('service worker privacy and cache routing', () => {
     expect(worker.storage.has('hearth-shell-obsolete-build')).toBe(false);
     expect(worker.storage.has('another-app-cache')).toBe(true);
     expect(worker.claim).toHaveBeenCalledOnce();
+    expect(worker.skipWaiting).toHaveBeenCalledOnce();
+  });
+
+  it.each(['network', 'challenge', 'private'])('keeps the previous offline shell when an update asset fails: %s', async failure => {
+    const build = { precache: ['/index.html', '/assets/new.js', '/assets/new.css'], revision: `failed-${failure}` };
+    const worker = workerHarness(async request => {
+      const path = new URL(keyOf(request)).pathname;
+      if (path.endsWith('.css')) {
+        if (failure === 'network') throw new TypeError('Connection lost');
+        if (failure === 'challenge') return basicResponse('<html>Sign in</html>', 'text/html');
+        return basicResponse('body{}', 'text/css', { 'cache-control': 'private, no-store' });
+      }
+      // A successful response arriving after the failed asset must still be
+      // settled before the candidate cache is removed.
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 5));
+      return path === '/index.html' ? basicResponse(readFileSync(resolve('index.html'), 'utf8'), 'text/html') : basicResponse('export {}', 'text/javascript');
+    }, build);
+    const previous = await worker.cacheStorage.open('hearth-shell-working-build');
+    await previous.put('/index.html', basicResponse('<html>Previous complete shell</html>', 'text/html'));
+    await previous.put('/assets/previous.js', basicResponse('export const previous = true', 'text/javascript'));
+    await expect(worker.dispatch('install')).rejects.toThrow('could not be installed completely');
+    expect(worker.storage.has(`hearth-shell-${build.revision}`)).toBe(false);
+    expect(worker.storage.get('hearth-shell-working-build')?.size).toBe(2);
+    expect(await (await worker.cacheStorage.match('/index.html'))?.text()).toContain('Previous complete shell');
+    expect(worker.skipWaiting).not.toHaveBeenCalled();
+    expect(worker.claim).not.toHaveBeenCalled();
   });
 
   it('precaches the generated build entry assets on the first installation', async () => {

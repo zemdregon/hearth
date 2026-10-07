@@ -3,7 +3,8 @@ import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
 import type { Bootstrap, FamilyExport, FamilyRecord, ModuleConfig, ModuleId, RecordDataMap, RecordKind, User } from '../shared/types';
 import { kindModule } from '../shared/types';
-import { createDemo, demoMembers, visibleDemo } from './demo';
+import { createDemo, demoMembers, prepareDemoAnswer, visibleDemo } from './demo';
+import { sameQuestionPair } from '../shared/question-pairing';
 
 const anonymous: User = { id: '', name: '', email: '', role: 'member', color: '#557461' };
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
@@ -26,7 +27,7 @@ type FamilyContext = Bootstrap & {
   refresh(): Promise<void>; enterDemo(): void; leaveDemo(): void; switchDemoUser(id: string): void; signOut(): void;
 };
 const Context = createContext<FamilyContext | null>(null);
-const empty: Bootstrap = {user:anonymous,members:[],modules:[],records:[],timezone:'UTC'};
+const empty: Bootstrap = {user:anonymous,members:[],modules:[],records:[],timezone:'UTC',questionPair:null};
 export function FamilyProvider({children}:{children:ReactNode}) {
   const [state,setState] = useState<Bootstrap>(empty);
   const [authenticated,setAuthenticated] = useState(false);
@@ -100,6 +101,7 @@ export function FamilyProvider({children}:{children:ReactNode}) {
     if(!demoRef.current) return mutate<FamilyRecord<K>>('/api/records',{method:'POST',body:JSON.stringify({kind,data})},storeRecord);
     assertDemoAccess(kind);
     const current=demoRef.current;
+    if(kind==='answer') data=prepareDemoAnswer(current,data as RecordDataMap['answer']) as RecordDataMap[K];
     if(kind==='habitLog') {const habit=current.records.find(r=>r.id===(data as RecordDataMap['habitLog']).habitId&&r.kind==='habit');if(!habit||habit.ownerId!==current.user.id) throw new Error('Only the person tracking this streak can check it in.');}
     const now=new Date().toISOString();
     const record={id:crypto.randomUUID(),kind,data,ownerId:current.user.id,version:1,createdAt:now,updatedAt:now} as FamilyRecord<K>;
@@ -108,11 +110,12 @@ export function FamilyProvider({children}:{children:ReactNode}) {
   async function updateRecord<K extends RecordKind>(record:FamilyRecord<K>,data:RecordDataMap[K]):Promise<FamilyRecord<K>> {
     if(!demoRef.current) return mutate<FamilyRecord<K>>(`/api/records/${encodeURIComponent(record.id)}`,{method:'PATCH',body:JSON.stringify({data,version:record.version})},storeRecord);
     assertDemoAccess(record.kind,record);
+    if(record.kind==='answer') data=prepareDemoAnswer(demoRef.current,data as RecordDataMap['answer'],record as FamilyRecord<'answer'>) as RecordDataMap[K];
     const next={...record,data,version:record.version+1,updatedAt:new Date().toISOString()} as FamilyRecord<K>;
     displayDemo({...demoRef.current,records:demoRef.current.records.map(r=>r.id===record.id?next:r)});return next;
   }
   async function deleteRecord(record:FamilyRecord) {
-    if(!demoRef.current) {await mutate(`/api/records/${encodeURIComponent(record.id)}`,{method:'DELETE',body:JSON.stringify({version:record.version})},current=>({...current,records:current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id))}));return;}
+    if(!demoRef.current) {await mutate(`/api/records/${encodeURIComponent(record.id)}`,{method:'DELETE',body:JSON.stringify({version:record.version})},current=>({...current,records:current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id)&&!(record.kind==='answer'&&r.kind==='answer'&&r.ownerId!==current.user.id&&r.data.date===record.data.date&&r.data.questionId===record.data.questionId&&sameQuestionPair(r.data.participantIds,record.data.participantIds)))}));return;}
     assertDemoAccess(record.kind,record);displayDemo({...demoRef.current,records:demoRef.current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id))});
   }
   async function setModule(id:ModuleId,enabled:boolean) {

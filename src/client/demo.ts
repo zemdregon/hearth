@@ -1,5 +1,8 @@
-import type { Bootstrap, FamilyRecord, RecordDataMap, RecordKind, User } from '../shared/types';
+import type { Answer, Bootstrap, FamilyRecord, RecordDataMap, RecordKind, User } from '../shared/types';
 import { kindModule, moduleIds } from '../shared/types';
+import { canViewAnswer, sameQuestionPair } from '../shared/question-pairing';
+import { isValidDate, todayInTimezone } from '../shared/calendar';
+import { questionForDate } from '../shared/questions';
 
 export const demoMembers: User[] = [
   { id: 'alex', name: 'Alex', email: 'alex@example.test', role: 'admin', color: '#557461' },
@@ -26,7 +29,7 @@ export function createDemo(): Bootstrap {
   add('profile-alex','profile',{bio:'Collector of recipes, little adventures, and good memories.',loves:['Slow Sunday mornings','Anything with lemon','A walk without a destination'],suggestions:['Let’s try a new recipe together','A handwritten note always makes my day']});
   add('profile-sam','profile',{bio:'Happiest outside, in a bookshop, or in the kitchen together.',loves:['Fresh flowers','Old movies','The first cup of coffee'],suggestions:['Plan a small surprise adventure','Save me the last pancake']},'sam');
   add('goal-trip','goal',{title:'Make time for a little adventure',description:'Plan a week somewhere we have never been. More memories, less rushing.',targetDate:dayOffset(120),completed:false,milestones:[{id:'g1',title:'Make our destination shortlist',done:true},{id:'g2',title:'Set a budget together',done:false},{id:'g3',title:'Book our time away',done:false}]});
-  return {user:demoMembers[0],members:demoMembers,modules:moduleIds.map(id=>({id,enabled:true})),records,timezone:'UTC',demo:true};
+  return {user:demoMembers[0],members:demoMembers,modules:moduleIds.map(id=>({id,enabled:true})),records,timezone:'UTC',questionPair:['alex','sam'],demo:true};
 }
 
 export function visibleDemo(source: Bootstrap): Bootstrap {
@@ -34,7 +37,25 @@ export function visibleDemo(source: Bootstrap): Bootstrap {
   return {...source, records:source.records.filter(r=>{
     if(!enabled.has(kindModule[r.kind])) return false;
     if(r.kind==='mood') return r.ownerId===source.user.id || r.data.shared;
-    if(r.kind==='answer' && r.ownerId!==source.user.id) return source.members.some(member=>member.id===r.ownerId) && source.members.every(member=>source.records.some(other=>other.kind==='answer' && other.ownerId===member.id && other.data.date===r.data.date && other.data.questionId===r.data.questionId));
+    if(r.kind==='answer') return canViewAnswer(r,source.records,source.user.id,source.questionPair,source.members);
     return true;
   })};
+}
+
+/** Mirror the API's audience and identity rules in the disposable local demo. */
+export function prepareDemoAnswer(source: Bootstrap, data: Answer, original?: FamilyRecord<'answer'>): Answer {
+  if (!isValidDate(data.date) || data.date < '1900-01-01' || data.date > todayInTimezone(source.timezone)) throw new Error('Choose today or a past date in your family timezone.');
+  const question = questionForDate(data.date);
+  if (question.id !== data.questionId || !Number.isInteger(data.choice) || data.choice < 0 || data.choice >= question.choices.length) throw new Error('Choose a valid answer for this date.');
+  if (original) {
+    if (data.date !== original.data.date || data.questionId !== original.data.questionId || data.participantIds?.[0] !== original.data.participantIds?.[0] || data.participantIds?.[1] !== original.data.participantIds?.[1]) throw new Error('An answer’s date, question, and original pair cannot be changed.');
+    if (data.shareToProfile && !original.data.shareToProfile && !sameQuestionPair(data.participantIds, source.questionPair)) throw new Error('This answer is private because its original pair is no longer active.');
+    return { ...data, ...(original.data.participantIds ? { participantIds: [...original.data.participantIds] } : {}) };
+  }
+  const pair = source.questionPair;
+  if (!pair || !pair.includes(source.user.id)) throw new Error('Daily questions are available to the configured couple.');
+  if (!sameQuestionPair(data.participantIds, pair)) throw new Error('Your question pairing changed. Refresh before answering.');
+  if (source.records.some(record => record.kind === 'answer' && record.data.date === data.date && pair.includes(record.ownerId) && !sameQuestionPair(record.data.participantIds, pair))) throw new Error('Your pairing changed for this day. Start a new question tomorrow.');
+  if (source.records.some(record => record.kind === 'answer' && record.ownerId === source.user.id && record.data.date === data.date)) throw new Error('An answer already exists for this day. Refresh before trying again.');
+  return { ...data, participantIds: [...pair] };
 }

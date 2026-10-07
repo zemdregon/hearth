@@ -1,5 +1,6 @@
 import { kindModule, moduleIds } from '../shared/types';
-import type { FamilyRecord, ModuleConfig, ModuleId, RecordDataMap, RecordKind, User } from '../shared/types';
+import type { FamilyRecord, ModuleConfig, ModuleId, QuestionPair, RecordDataMap, RecordKind, User } from '../shared/types';
+import { canViewAnswer, sameQuestionPair } from '../shared/question-pairing';
 import { ApiError } from './env';
 
 type RecordRow = { id: string; kind: RecordKind; owner_id: string; data: string; created_at: string; updated_at: string; version: number };
@@ -22,37 +23,32 @@ export async function getRecord(db: D1Database, id: string): Promise<FamilyRecor
   return decode(row);
 }
 
-export function visibleRecords(records: FamilyRecord[], user: User, members: User[], modules: ModuleConfig[]): FamilyRecord[] {
+export function visibleRecords(records: FamilyRecord[], user: User, members: User[], modules: ModuleConfig[], questionPair: QuestionPair | null): FamilyRecord[] {
   const enabled = new Set(modules.filter(module => module.enabled).map(module => module.id));
-  const answers = new Map<string, Set<string>>();
+  const answersByQuestion = new Map<string, FamilyRecord<'answer'>[]>();
   for (const record of records) {
     if (record.kind !== 'answer') continue;
     const key = `${record.data.date}:${record.data.questionId}`;
-    const owners = answers.get(key) || new Set<string>();
-    owners.add(record.ownerId);
-    answers.set(key, owners);
+    const answers = answersByQuestion.get(key) || [];
+    answers.push(record);
+    answersByQuestion.set(key, answers);
   }
   return records.filter(record => {
     if (!enabled.has(kindModule[record.kind])) return false;
     if (record.kind === 'mood') return record.ownerId === user.id || record.data.shared;
-    if (record.kind === 'answer') {
-      if (record.ownerId === user.id) return true;
-      if (!members.some(member => member.id === record.ownerId)) return false;
-      const owners = answers.get(`${record.data.date}:${record.data.questionId}`);
-      return members.every(member => owners?.has(member.id));
-    }
+    if (record.kind === 'answer') return canViewAnswer(record, answersByQuestion.get(`${record.data.date}:${record.data.questionId}`) || [], user.id, questionPair, members);
     return true;
   });
 }
 
-export async function readFamilySnapshot(db: D1Database, user: User, members: User[]): Promise<{ modules: ModuleConfig[]; records: FamilyRecord[] }> {
+export async function readFamilySnapshot(db: D1Database, user: User, members: User[], questionPair: QuestionPair | null): Promise<{ modules: ModuleConfig[]; records: FamilyRecord[] }> {
   // One D1 transaction keeps module visibility and records on the same snapshot.
   const [settings, rows] = await db.batch([
     db.prepare('SELECT id, enabled FROM modules'),
     db.prepare('SELECT * FROM records ORDER BY created_at DESC, id DESC'),
   ]);
   const modules = moduleSettings(settings.results as ModuleRow[]);
-  const records = visibleRecords((rows.results as RecordRow[]).map(decode), user, members, modules);
+  const records = visibleRecords((rows.results as RecordRow[]).map(decode), user, members, modules, questionPair);
   return { modules, records };
 }
 
@@ -70,13 +66,26 @@ export async function createRecord<K extends RecordKind>(db: D1Database, user: U
   const now = new Date().toISOString();
   const record = { id: crypto.randomUUID(), kind, ownerId: user.id, data, createdAt: now, updatedAt: now, version: 1 } as FamilyRecord;
   const habitId = kind === 'habitLog' ? (data as RecordDataMap['habitLog']).habitId : null;
+  const answer = kind === 'answer' ? data as RecordDataMap['answer'] : null;
+  if (answer && (!sameQuestionPair(answer.participantIds, answer.participantIds) || !answer.participantIds?.includes(user.id))) throw new ApiError(400, 'Choose the currently configured question pair.');
+  // Recheck the partner's scope inside the atomic insert: a concurrent request using
+  // an older deployment configuration must not bind this day to a different pair.
+  const pairGuard = answer ? `AND NOT EXISTS (
+    SELECT 1 FROM records WHERE kind = 'answer' AND json_extract(data, '$.date') = ? AND owner_id IN (?, ?)
+    AND (json_type(data, '$.participantIds') IS NOT 'array' OR COALESCE(json_array_length(data, '$.participantIds'), 0) != 2
+      OR NOT (COALESCE(json_extract(data, '$.participantIds[0]') = ? AND json_extract(data, '$.participantIds[1]') = ?, 0)
+        OR COALESCE(json_extract(data, '$.participantIds[0]') = ? AND json_extract(data, '$.participantIds[1]') = ?, 0)))
+  )` : '';
+  const participants = answer?.participantIds;
+  const pairBindings = answer && participants ? [answer.date, participants[0], participants[1], participants[0], participants[1], participants[1], participants[0]] : [];
   try {
     const result = await db.prepare(`INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version)
       SELECT ?, ?, ?, ?, ?, ?, 1
       WHERE COALESCE((SELECT enabled FROM modules WHERE id = ?), 1) = 1
       AND (? IS NULL OR EXISTS (SELECT 1 FROM records WHERE id = ? AND kind = 'habit' AND owner_id = ?))
+      ${pairGuard}
       RETURNING id`)
-      .bind(record.id, kind, user.id, JSON.stringify(data), now, now, kindModule[kind], habitId, habitId, user.id).first<{ id: string }>();
+      .bind(record.id, kind, user.id, JSON.stringify(data), now, now, kindModule[kind], habitId, habitId, user.id, ...pairBindings).first<{ id: string }>();
     if (!result) throw new ApiError(409, 'This change is no longer available. Refresh and try again.');
     return record;
   } catch (error) { return translateConstraint(error); }

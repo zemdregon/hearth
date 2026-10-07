@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDemo, demoMembers, visibleDemo } from '../src/client/demo';
+import { createDemo, demoMembers, prepareDemoAnswer, visibleDemo } from '../src/client/demo';
 import { visibleRecords } from '../src/server/db';
 import { questionForDate } from '../src/shared/questions';
 import { kindModule, moduleIds } from '../src/shared/types';
@@ -10,13 +10,13 @@ const day = '2026-01-01';
 const lee: User = { id: 'lee', name: 'Lee', email: 'lee@example.test', role: 'member', color: '#426c85' };
 
 function answer(ownerId: string, date = day, overrides: Partial<FamilyRecord<'answer'>['data']> = {}): FamilyRecord<'answer'> {
-  return { id: `${ownerId}-${date}`, kind: 'answer', ownerId, data: { date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, ...overrides }, createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, version: 1 };
+  return { id: `${ownerId}-${date}`, kind: 'answer', ownerId, data: { date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, participantIds: ['alex', 'sam'], ...overrides }, createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, version: 1 };
 }
 
 function expectParity(source: Bootstrap) {
   for (const user of source.members) {
     const view = visibleDemo({ ...source, user });
-    expect(ids(view.records), `Visibility for ${user.name}`).toEqual(ids(visibleRecords(source.records, user, source.members, source.modules)));
+    expect(ids(view.records), `Visibility for ${user.name}`).toEqual(ids(visibleRecords(source.records, user, source.members, source.modules, source.questionPair)));
   }
 }
 
@@ -75,18 +75,32 @@ describe('demo visibility follows the real API policy', () => {
     expect(visibleDemo(source).records.filter(record => record.kind === 'answer')).toHaveLength(1);
   });
 
-  it('reveals answers together after every configured member has answered', () => {
+  it('reveals only within the explicit pair and releases opted-in preferences to other household members', () => {
     const source = createDemo();
     source.members = [...source.members, lee];
     source.records.push(answer('alex'), answer('sam'));
     expectParity(source);
-    expect(visibleDemo(source).records.filter(record => record.kind === 'answer')).toHaveLength(1);
+    expect(visibleDemo(source).records.filter(record => record.kind === 'answer')).toHaveLength(2);
     expect(visibleDemo({ ...source, user: lee }).records.filter(record => record.kind === 'answer')).toHaveLength(0);
-    source.records.push(answer('lee'));
+    source.records = source.records.map(record => record.kind === 'answer' && record.ownerId === 'alex' ? { ...record, data: { ...record.data, shareToProfile: true } } : record);
     expectParity(source);
-    for (const user of source.members) {
-      expect(visibleDemo({ ...source, user }).records.filter(record => record.kind === 'answer')).toHaveLength(3);
-    }
+    expect(visibleDemo({ ...source, user: lee }).records.filter(record => record.kind === 'answer').map(record => record.ownerId)).toEqual(['alex']);
+  });
+
+  it('keeps legacy and previous-pair answers private even when profile consent was recorded', () => {
+    const source = createDemo();
+    source.members = [...source.members, lee];
+    source.records.push(answer('alex', day, { participantIds: undefined, shareToProfile: true }), answer('sam', day, { participantIds: undefined, shareToProfile: true }));
+    expectParity(source);
+    expect(visibleDemo(source).records.filter(record => record.kind === 'answer').map(record => record.ownerId)).toEqual(['alex']);
+    expect(visibleDemo({ ...source, user: lee }).records.filter(record => record.kind === 'answer')).toHaveLength(0);
+    source.records = [answer('alex', day, { shareToProfile: true }), answer('sam', day, { shareToProfile: true })];
+    source.questionPair = ['alex', 'lee'];
+    expectParity(source);
+    expect(visibleDemo({ ...source, user: lee }).records.filter(record => record.kind === 'answer')).toHaveLength(0);
+    source.questionPair = null;
+    expectParity(source);
+    expect(visibleDemo(source).records.filter(record => record.kind === 'answer').map(record => record.ownerId)).toEqual(['alex']);
   });
 
   it('hides a departed member’s answer even after every current member answers', () => {
@@ -121,5 +135,37 @@ describe('demo visibility follows the real API policy', () => {
     expectParity(source);
     expect(visibleDemo(source).records.filter(record => record.kind === 'answer')).toHaveLength(0);
     expect(visibleDemo({ ...source, user: demoMembers[1] }).records.filter(record => record.kind === 'answer')).toHaveLength(1);
+  });
+});
+
+describe('demo answer mutations preserve the same audience constraints', () => {
+  it('normalizes a current expected pair and rejects stale or missing pairs', () => {
+    const source = createDemo();
+    const data = answer('alex').data;
+    expect(prepareDemoAnswer(source, { ...data, participantIds: ['sam', 'alex'] }).participantIds).toEqual(['alex', 'sam']);
+    expect(() => prepareDemoAnswer(source, { ...data, participantIds: undefined })).toThrow('pairing changed');
+    expect(() => prepareDemoAnswer(source, { ...data, participantIds: ['alex', 'lee'] })).toThrow('pairing changed');
+    expect(() => prepareDemoAnswer({ ...source, questionPair: null }, data)).toThrow('configured couple');
+    expect(() => prepareDemoAnswer({ ...source, user: lee }, data)).toThrow('configured couple');
+  });
+
+  it('preserves identity and allows only withdrawal for old or legacy scopes', () => {
+    const source = createDemo();
+    const original = answer('alex');
+    expect(() => prepareDemoAnswer(source, { ...original.data, date: '2026-02-02', questionId: questionForDate('2026-02-02').id }, original)).toThrow('cannot be changed');
+    expect(() => prepareDemoAnswer(source, { ...original.data, participantIds: ['sam', 'alex'] }, original)).toThrow('cannot be changed');
+    const legacy = answer('alex', day, { participantIds: undefined, shareToProfile: true });
+    expect(prepareDemoAnswer(source, { ...legacy.data, shareToProfile: false }, legacy).participantIds).toBeUndefined();
+    expect(() => prepareDemoAnswer(source, { ...legacy.data, participantIds: ['alex', 'sam'] }, legacy)).toThrow('cannot be changed');
+    const unsharedLegacy = { ...legacy, data: { ...legacy.data, shareToProfile: false } };
+    expect(() => prepareDemoAnswer(source, { ...unsharedLegacy.data, shareToProfile: true }, unsharedLegacy)).toThrow('private');
+  });
+
+  it('does not repurpose a day already answered under another scope or create duplicates', () => {
+    const source = createDemo();
+    source.records.push(answer('sam', day, { participantIds: undefined }));
+    expect(() => prepareDemoAnswer(source, answer('alex').data)).toThrow('Start a new question tomorrow');
+    source.records = [answer('alex')];
+    expect(() => prepareDemoAnswer(source, answer('alex').data)).toThrow('already exists');
   });
 });

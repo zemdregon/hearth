@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { moduleIds, kindModule } from '../shared/types';
 import type { RecordDataMap, RecordKind, User } from '../shared/types';
+import { sameQuestionPair } from '../shared/question-pairing';
 import { questionForDate } from '../shared/questions';
 import { todayInTimezone } from '../shared/calendar';
 import { authenticate, enforceOrigin, readConfig } from './auth';
@@ -44,8 +45,8 @@ app.use('/api/*', async (c, next) => {
 async function bootstrap(c: Context<{ Bindings: Env; Variables: Variables }>) {
   const family = c.get('family');
   const user = c.get('user');
-  const { modules, records } = await readFamilySnapshot(c.env.DB, user, family.members);
-  return { user, members: family.members, modules, records, timezone: family.timezone };
+  const { modules, records } = await readFamilySnapshot(c.env.DB, user, family.members, family.questionPair);
+  return { user, members: family.members, modules, records, timezone: family.timezone, questionPair: family.questionPair };
 }
 
 app.get('/api/bootstrap', async c => c.json(await bootstrap(c)));
@@ -73,6 +74,13 @@ app.post('/api/records', async c => {
   await requireModule(c.env.DB, kindModule[kind]);
   const data = validateData(kind, input);
   const user = c.get('user');
+  if (kind === 'answer') {
+    const answer = data as RecordDataMap['answer'];
+    const pair = c.get('family').questionPair;
+    if (!pair || !pair.includes(user.id)) throw new ApiError(403, 'Daily questions are available only to the configured pair.');
+    if (!sameQuestionPair(answer.participantIds, pair)) throw new ApiError(409, 'The question pair changed. Refresh before answering.');
+    answer.participantIds = [...pair];
+  }
   await validateRelations(c.env.DB, kind, data, user, c.get('family').members, c.get('family').timezone);
   const record = await createRecord(c.env.DB, user, kind, data);
   return c.json(record, 201);
@@ -84,6 +92,18 @@ app.patch('/api/records/:id', async c => {
   await requireModule(c.env.DB, kindModule[record.kind]);
   requireOwnership(record, c.get('user'));
   const data = validateData(record.kind, input);
+  if (record.kind === 'answer') {
+    const answer = data as RecordDataMap['answer'];
+    const original = record.data;
+    if (answer.date !== original.date || answer.questionId !== original.questionId
+      || answer.participantIds?.[0] !== original.participantIds?.[0] || answer.participantIds?.[1] !== original.participantIds?.[1]) {
+      throw new ApiError(400, 'An answer’s date, question, and participants cannot be changed.');
+    }
+    const pair = c.get('family').questionPair;
+    if (answer.shareToProfile && !original.shareToProfile && (!pair?.includes(record.ownerId) || !sameQuestionPair(original.participantIds, pair))) {
+      throw new ApiError(409, 'Only answers for the current question pair can be shared with family.');
+    }
+  }
   await validateRelations(c.env.DB, record.kind, data, c.get('user'), c.get('family').members, c.get('family').timezone);
   return c.json(await updateRecord(c.env.DB, record, data, version));
 });

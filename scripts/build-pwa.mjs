@@ -16,5 +16,6 @@ for(const path of paths) {
   urls.push(url);hash.update(url);hash.update(await readFile(path));
 }
 const revision=hash.digest('hex').slice(0,16);
-await writeFile(new URL('sw.js',root),`self.__HEARTH_PRECACHE = ${JSON.stringify(urls)};\nself.__HEARTH_REVISION = ${JSON.stringify(revision)};\n${sw}`);
+const documentHash=createHash('sha256').update(await readFile(new URL('index.html',root))).digest('hex');
+await writeFile(new URL('sw.js',root),`self.__HEARTH_PRECACHE = ${JSON.stringify(urls)};\nself.__HEARTH_REVISION = ${JSON.stringify(revision)};\nself.__HEARTH_DOCUMENT_HASH = ${JSON.stringify(documentHash)};\n${sw}`);
 console.log(`Prepared offline shell ${revision} (${urls.length} public assets).`);

@@ -21,11 +21,13 @@ To run the services separately:
 
 Local authentication requires `DEV_AUTH=true`, a local request hostname and explicitly configured `FAMILY_MEMBERS`. The first configured member is the default local identity; API tests may select another with `X-Dev-User`. Never configure the development bypass in a deployed Worker.
 
+Daily questions pair a two-member household automatically. For larger households, configure the optional `FAMILY_QUESTION_PAIR` secret as two existing member ids, such as `["alex","sam"]`; JSON `null` disables participation. Answers reveal privately after both partners answer, with separate opt-in for family profile sharing. Earlier answers without a recorded pair remain owner-only. See the [pairing rules](docs/DEPLOYMENT.md#daily-question-pairing) before changing a pair.
+
 ## Validation
 
 `npm run check` runs TypeScript, unit/API tests, and the production build. `npm run test:e2e` runs browser tests with Chromium (`CHROMIUM_PATH` may override `/usr/bin/chromium`). Production deployment and live AI inference require configured Cloudflare access; passing local tests does not imply either was performed.
 
-The first verified checkpoint passes 259 unit/API/deployment/PWA tests and 42 browser tests, including real local Worker/D1 persistence, accessibility, private-data isolation and offline shell behavior. See the roadmap for later checkpoints. The patched `sharp` override keeps Wrangler's local development image dependency current; reassess the override when Wrangler incorporates that patch.
+The latest verified local checkpoint passes 363 unit/API/deployment/PWA/launcher tests and 62 browser tests, including real Worker/D1 persistence, explicit couples privacy, large collections, accessibility and interrupted offline updates. See the roadmap for checkpoint details and [performance evidence](docs/PERFORMANCE.md). The patched `sharp` override keeps Wrangler's local development image dependency current; reassess the override when Wrangler incorporates that patch.
 
 ## Production
 

@@ -2,7 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Env, FamilyConfig } from './env';
 import { ApiError } from './env';
 import type { User } from '../shared/types';
-import { parseAccessDomain, parseFamilyMembers, parseTimezone } from './config.mjs';
+import { parseAccessDomain, parseFamilyMembers, parseQuestionPair, parseTimezone } from './config.mjs';
 
 export function isLoopback(hostname: string): boolean {
   return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);
@@ -13,6 +13,7 @@ export function readConfig(env: Env, requestUrl: string): FamilyConfig {
     const url = new URL(requestUrl);
     const dev = env.DEV_AUTH === 'true' && isLoopback(url.hostname);
     const members = parseFamilyMembers(env.FAMILY_MEMBERS);
+    const questionPair = parseQuestionPair(env.FAMILY_QUESTION_PAIR, members);
     const timezone = parseTimezone(env.FAMILY_TIMEZONE);
     const originUrl = new URL(env.APP_ORIGIN || (dev ? url.origin : ''));
     if (originUrl.username || originUrl.password || originUrl.pathname !== '/' || originUrl.search || originUrl.hash || (!dev && originUrl.protocol !== 'https:')) throw new Error('Invalid origin');
@@ -21,7 +22,7 @@ export function readConfig(env: Env, requestUrl: string): FamilyConfig {
       if (!env.ACCESS_AUD?.trim()) throw new Error('Missing Access audience');
       parseAccessDomain(env.ACCESS_TEAM_DOMAIN);
     }
-    return { members, timezone, origin: originUrl.origin, dev };
+    return { members, questionPair, timezone, origin: originUrl.origin, dev };
   } catch {
     throw new ApiError(503, 'Family access is not configured.');
   }

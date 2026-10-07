@@ -24,7 +24,8 @@ export const dataSchemas = {
   habitLog: z.object({ habitId: id, date: dateSchema }).strict(),
   event: z.object({ title, date: dateSchema, emoji: z.string().max(20), description: shortText }).strict(),
   mood: z.object({ date: dateSchema, score: z.number().int().min(1).max(5), note: shortText, shared: z.boolean() }).strict(),
-  answer: z.object({ questionId: id, date: dateSchema, choice: z.number().int().min(0).max(20), shareToProfile: z.boolean() }).strict(),
+  // Optional only so an owner can edit a legacy answer without inventing its audience.
+  answer: z.object({ questionId: id, date: dateSchema, choice: z.number().int().min(0).max(20), shareToProfile: z.boolean(), participantIds: z.tuple([id, id]).refine(pair => pair[0] !== pair[1], 'Choose two different participants').optional() }).strict(),
   profile: z.object({ bio: shortText, loves: z.array(z.string().trim().min(1).max(200)).max(30), suggestions: z.array(z.string().trim().min(1).max(500)).max(30) }).strict(),
   goal: z.object({ title, description: shortText, targetDate: dateSchema.optional(), milestones: z.array(z.object({ id, title, done: z.boolean() }).strict()).max(100).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Milestone ids must be unique'), completed: z.boolean() }).strict(),
 } satisfies Record<RecordKind, z.ZodType>;

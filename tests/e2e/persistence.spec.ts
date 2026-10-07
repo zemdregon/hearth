@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Bootstrap, FamilyRecord } from '../../src/shared/types';
+import { addDays } from '../../src/shared/calendar';
+import { questionForDate } from '../../src/shared/questions';
 
 test('real Worker and D1 persist shared edits, enforce conflicts, privacy, and module controls', async ({ request })=>{
   const origin='http://localhost:5173';
@@ -50,4 +52,46 @@ test('real UI saves a shared task across reloads',async({page,request})=>{
   const record=data.records.find(r=>r.kind==='task'&&r.data.title===title);
   expect(record).toBeDefined();
   if(record) await request.delete(`/api/records/${record.id}`,{headers:{Origin:'http://localhost:5173'},data:{version:record.version}});
+});
+
+test('real Worker and D1 bind question audiences, reveal a completed pair, and revoke visibility after withdrawal', async ({ request }) => {
+  const headers = { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' };
+  const samHeaders = { ...headers, 'X-Dev-User': 'sam@example.test' };
+  const alex = await (await request.get('/api/bootstrap')).json() as Bootstrap;
+  const sam = await (await request.get('/api/bootstrap', { headers: samHeaders })).json() as Bootstrap;
+  expect(alex.questionPair).toEqual(['alex', 'sam']);
+  const occupiedDates = new Set([...alex.records, ...sam.records].filter(record => record.kind === 'answer').map(record => record.data.date));
+  let date = '1999-01-01';
+  while (occupiedDates.has(date)) date = addDays(date, 1);
+  const data = { date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, participantIds: alex.questionPair };
+  const created: FamilyRecord<'answer'>[] = [];
+  try {
+    const first = await request.post('/api/records', { headers, data: { kind: 'answer', data } });
+    expect(first.status(), await first.text()).toBe(201);
+    const firstAnswer = await first.json() as FamilyRecord<'answer'>;
+    created.push(firstAnswer);
+    const waiting = await (await request.get('/api/bootstrap', { headers: samHeaders })).json() as Bootstrap;
+    expect(waiting.records.some(record => record.id === firstAnswer.id)).toBe(false);
+
+    const forged = await request.post('/api/records', { headers: samHeaders, data: { kind: 'answer', data: { ...data, participantIds: ['sam', 'outsider'] } } });
+    expect(forged.status()).toBe(409);
+    const second = await request.post('/api/records', { headers: samHeaders, data: { kind: 'answer', data: { ...data, choice: 1 } } });
+    expect(second.status(), await second.text()).toBe(201);
+    const secondAnswer = await second.json() as FamilyRecord<'answer'>;
+    created.push(secondAnswer);
+    const revealed = await (await request.get('/api/bootstrap')).json() as Bootstrap;
+    expect(revealed.records.filter(record => created.some(answer => answer.id === record.id))).toHaveLength(2);
+
+    const reassigned = await request.patch(`/api/records/${firstAnswer.id}`, { headers, data: { version: firstAnswer.version, data: { ...firstAnswer.data, participantIds: ['alex', 'outsider'] } } });
+    expect(reassigned.status()).toBe(400);
+    const removed = await request.delete(`/api/records/${firstAnswer.id}`, { headers, data: { version: firstAnswer.version } });
+    expect(removed.status()).toBe(200);
+    created.shift();
+    const withdrawn = await (await request.get('/api/bootstrap')).json() as Bootstrap;
+    expect(withdrawn.records.some(record => record.id === secondAnswer.id)).toBe(false);
+    const owner = await (await request.get('/api/bootstrap', { headers: samHeaders })).json() as Bootstrap;
+    expect(owner.records.some(record => record.id === secondAnswer.id)).toBe(true);
+  } finally {
+    for (const record of created) await request.delete(`/api/records/${record.id}`, { headers: record.ownerId === 'sam' ? samHeaders : headers, data: { version: record.version } });
+  }
 });

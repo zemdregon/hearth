@@ -1,7 +1,8 @@
-import { parseAccessDomain, parseFamilyMembers, parseTimezone } from '../src/server/config.mjs';
+import { parseAccessDomain, parseFamilyMembers, parseQuestionPair, parseTimezone } from '../src/server/config.mjs';
 
-export const deploymentSecretNames = ['ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'APP_ORIGIN', 'FAMILY_MEMBERS'];
-const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', ...deploymentSecretNames];
+const requiredSecretNames = ['ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'APP_ORIGIN', 'FAMILY_MEMBERS'];
+export const deploymentSecretNames = [...requiredSecretNames, 'FAMILY_QUESTION_PAIR'];
+const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', ...requiredSecretNames];
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const reservedHostname = hostname => hostname === 'localhost' || /(?:^|\.)(?:example\.(?:com|net|org)|test|invalid|example|localhost)$/.test(hostname);
 
@@ -78,6 +79,11 @@ export function validateDeployment(config, environment) {
       if (members.some(member => reservedHostname(member.email.split('@')[1]))) problems.push('FAMILY_MEMBERS must use real family email addresses; reserved example/test domains are not deployable.');
     } catch { problems.push('FAMILY_MEMBERS must be 1–20 valid, unique member objects with id, name, email, role, color and at least one admin.'); }
   }
+  let questionPair;
+  if (members) {
+    try { questionPair = parseQuestionPair(environment.FAMILY_QUESTION_PAIR, members); }
+    catch { problems.push('FAMILY_QUESTION_PAIR must be JSON containing two distinct existing family member ids, or null.'); }
+  }
 
   if (problems.length) return { problems: [...new Set(problems)] };
   return {
@@ -86,7 +92,8 @@ export function validateDeployment(config, environment) {
       databaseName: database.database_name,
       migrationsDirectory: database.migrations_dir || 'migrations',
       workerName: config.name,
-      secrets: { ACCESS_TEAM_DOMAIN: domain, ACCESS_AUD: environment.ACCESS_AUD, APP_ORIGIN: origin, FAMILY_MEMBERS: JSON.stringify(members), DEV_AUTH: 'false' },
+      // Always upload the normalized pair, including null, to replace a stale secret.
+      secrets: { ACCESS_TEAM_DOMAIN: domain, ACCESS_AUD: environment.ACCESS_AUD, APP_ORIGIN: origin, FAMILY_MEMBERS: JSON.stringify(members), FAMILY_QUESTION_PAIR: JSON.stringify(questionPair), DEV_AUTH: 'false' },
     },
   };
 }

@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Heart, LockKeyhole, Pencil, Trash2, Users } from 'lucide-react';
-import { useFamily, useRecords } from '../store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Heart, LockKeyhole, Pencil, Trash2, Users } from 'lucide-react';
+import { useFamily } from '../store';
 import { Badge, Button, EmptyState, Modal, SectionHeader } from '../components/ui';
 import { formatDate, todayInTimezone } from '../../shared/calendar';
 import type { FamilyRecord, Mood } from '../../shared/types';
 import './wellness.css';
+import './mood-history.css';
+
+const HISTORY_PAGE_SIZE = 30;
 
 const moodOptions = [
   { score: 1, symbol: '☁', label: 'Low' }, { score: 2, symbol: '☂', label: 'A little low' },
@@ -13,8 +16,8 @@ const moodOptions = [
 ];
 
 export function Moods() {
-  const { user, members, timezone, addRecord, updateRecord, deleteRecord } = useFamily();
-  const records = useRecords('mood');
+  const { user, members, timezone, records: familyRecords, addRecord, updateRecord, deleteRecord } = useFamily();
+  const records = useMemo(() => familyRecords.filter((record): record is FamilyRecord<'mood'> => record.kind === 'mood'), [familyRecords]);
   const today = todayInTimezone(timezone);
   const [editing, setEditing] = useState<FamilyRecord<'mood'> | null>(null);
   const [date, setDate] = useState(today);
@@ -22,13 +25,36 @@ export function Moods() {
   const [note, setNote] = useState('');
   const [shared, setShared] = useState(false);
   const [filter, setFilter] = useState<'mine' | 'family'>('mine');
+  const [historyPage, setHistoryPage] = useState(0);
+  const historyHeading = useRef<HTMLHeadingElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
   const [deleting, setDeleting] = useState<FamilyRecord<'mood'> | null>(null);
   const previousDay = useRef(today);
   const existing = records.find(record => record.ownerId === user?.id && record.data.date === date && record.id !== editing?.id);
-  const visible = records.filter(record => filter === 'mine' ? record.ownerId === user?.id : record.data.shared).sort((left, right) => right.data.date.localeCompare(left.data.date) || right.createdAt.localeCompare(left.createdAt));
+  const visible = useMemo(() => records.filter(record => filter === 'mine' ? record.ownerId === user.id : record.data.shared).sort((left, right) => right.data.date.localeCompare(left.data.date) || right.createdAt.localeCompare(left.createdAt)), [records, filter, user.id]);
+  const pageCount = Math.max(1, Math.ceil(visible.length / HISTORY_PAGE_SIZE));
+  const currentPage = Math.min(historyPage, pageCount - 1);
+  const pageStart = currentPage * HISTORY_PAGE_SIZE;
+  // Keep both DOM size and date formatting bounded. Local form edits must not
+  // rebuild years of history or discard the draft when its page changes.
+  const pageRecords = useMemo(() => visible.slice(currentPage * HISTORY_PAGE_SIZE, (currentPage + 1) * HISTORY_PAGE_SIZE).map(record => ({ record, dateLabel: formatDate(record.data.date) })), [visible, currentPage]);
+  useEffect(() => { setHistoryPage(page => Math.min(page, pageCount - 1)); }, [pageCount]);
+
+  function changeFilter(next: 'mine' | 'family') { setFilter(next); setHistoryPage(0); }
+  function changePage(next: number, returnToHeading = false) {
+    setHistoryPage(Math.max(0, Math.min(next, pageCount - 1)));
+    if (returnToHeading) { historyHeading.current?.focus({ preventScroll: true }); historyHeading.current?.scrollIntoView({ block: 'start' }); }
+  }
+  function pagination(position: 'top' | 'bottom') {
+    if (pageCount < 2) return null;
+    return <nav className="mood-history-pagination" aria-label={`Mood history pages, ${position}`}>
+      <Button variant="secondary" size="sm" aria-label="Previous mood page" disabled={currentPage === 0} onClick={() => changePage(currentPage - 1, position === 'bottom')}><ChevronLeft size={15} aria-hidden="true" />Previous</Button>
+      <span className="mood-history-page-number">Page {currentPage + 1} of {pageCount}</span>
+      <Button variant="secondary" size="sm" aria-label="Next mood page" disabled={currentPage >= pageCount - 1} onClick={() => changePage(currentPage + 1, position === 'bottom')}>Next<ChevronRight size={15} aria-hidden="true" /></Button>
+    </nav>;
+  }
 
   useEffect(() => {
     if (today === previousDay.current) return;
@@ -85,18 +111,20 @@ export function Moods() {
         </form>
       </section>
       <section className="mood-history stack" aria-label="Mood history">
-        <div className="wellness-row"><h2>Life, day by day</h2><Heart size={20} aria-hidden="true" /></div>
-        <div className="wellness-tabs" aria-label="Check-in visibility"><button type="button" aria-pressed={filter === 'mine'} className={filter === 'mine' ? 'is-active' : ''} onClick={() => setFilter('mine')}>My check-ins</button><button type="button" aria-pressed={filter === 'family'} className={filter === 'family' ? 'is-active' : ''} onClick={() => setFilter('family')}>Shared with family</button></div>
+        <div className="wellness-row"><h2 ref={historyHeading} tabIndex={-1} className="mood-history-heading">Life, day by day</h2><Heart size={20} aria-hidden="true" /></div>
+        <div className="wellness-tabs" aria-label="Check-in visibility"><button type="button" aria-pressed={filter === 'mine'} className={filter === 'mine' ? 'is-active' : ''} onClick={() => changeFilter('mine')}>My check-ins</button><button type="button" aria-pressed={filter === 'family'} className={filter === 'family' ? 'is-active' : ''} onClick={() => changeFilter('family')}>Shared with family</button></div>
         {saved && <p className="wellness-success" role="status">{saved}</p>}
-        {visible.length === 0 ? <EmptyState icon={<Heart size={25} />} title={filter === 'mine' ? 'A little space to reflect' : 'Room to share, when you’re ready'} description={filter === 'mine' ? 'Your check-ins will gather here, one day at a time.' : 'Only check-ins that someone has chosen to share appear here.'} /> : <div className="stack mood-history-list">{visible.map(record => {
+        {visible.length > 0 && <div className="mood-history-page-bar"><p className="mood-history-range" role="status" aria-live="polite" aria-atomic="true">Showing {pageStart + 1}–{Math.min(pageStart + HISTORY_PAGE_SIZE, visible.length)} of {visible.length.toLocaleString('en-US')} check-ins</p>{pagination('top')}</div>}
+        {visible.length === 0 ? <EmptyState icon={<Heart size={25} />} title={filter === 'mine' ? 'A little space to reflect' : 'Room to share, when you’re ready'} description={filter === 'mine' ? 'Your check-ins will gather here, one day at a time.' : 'Only check-ins that someone has chosen to share appear here.'} /> : <div className="stack mood-history-list">{pageRecords.map(({ record, dateLabel }) => {
           const option = moodOptions.find(value => value.score === record.data.score);
           const own = record.ownerId === user?.id;
           const member = members.find(value => value.id === record.ownerId);
-          return <article key={record.id} className="card mood-history-card"><div className="wellness-row"><div className="mood-history-title"><span className="mood-history-symbol" aria-hidden="true">{option?.symbol ?? '○'}</span><div><h3>{option?.label ?? 'Check-in'}</h3><p className="muted">{!own ? `${member?.name ?? 'Family member'} · ` : ''}{formatDate(record.data.date)}</p></div></div><Badge tone={record.data.shared ? 'green' : 'neutral'}>{record.data.shared ? 'Shared' : 'Private'}</Badge></div>
+          return <article key={record.id} className="card mood-history-card"><div className="wellness-row"><div className="mood-history-title"><span className="mood-history-symbol" aria-hidden="true">{option?.symbol ?? '○'}</span><div><h3>{option?.label ?? 'Check-in'}</h3><p className="muted">{!own ? `${member?.name ?? 'Family member'} · ` : ''}{dateLabel}</p></div></div><Badge tone={record.data.shared ? 'green' : 'neutral'}>{record.data.shared ? 'Shared' : 'Private'}</Badge></div>
             {record.data.note && <p className="mood-note">{record.data.note}</p>}
-            {own && <div className="mood-history-actions"><Button variant="ghost" size="sm" onClick={() => edit(record)} disabled={busy}><Pencil size={14} aria-hidden="true" />Edit<span className="sr-only"> check-in for {formatDate(record.data.date)}</span></Button><Button variant="ghost" size="sm" onClick={() => { setError(''); setDeleting(record); }} disabled={busy}><Trash2 size={14} aria-hidden="true" />Delete<span className="sr-only"> check-in for {formatDate(record.data.date)}</span></Button></div>}
+            {own && <div className="mood-history-actions"><Button variant="ghost" size="sm" onClick={() => edit(record)} disabled={busy}><Pencil size={14} aria-hidden="true" />Edit<span className="sr-only"> check-in for {dateLabel}</span></Button><Button variant="ghost" size="sm" onClick={() => { setError(''); setDeleting(record); }} disabled={busy}><Trash2 size={14} aria-hidden="true" />Delete<span className="sr-only"> check-in for {dateLabel}</span></Button></div>}
           </article>;
         })}</div>}
+        {pagination('bottom')}
       </section>
     </div>
     <Modal open={Boolean(deleting)} onClose={() => { if (!busy) setDeleting(null); }} title="Delete this check-in?" description="This removes the feeling and note for this day.">{error && <p className="wellness-error" role="alert">{error}</p>}<div className="wellness-actions"><Button variant="secondary" disabled={busy} onClick={() => setDeleting(null)}>Keep check-in</Button><Button variant="danger" busy={busy} onClick={() => void confirmDelete()}>Delete check-in</Button></div></Modal>

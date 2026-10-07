@@ -19,6 +19,20 @@ export function parseFamilyMembers(value) {
   return membersSchema.parse(JSON.parse(value));
 }
 
+export function parseQuestionPair(value, members) {
+  if (value === undefined) return members.length === 2 ? members.map(member => member.id).sort() : null;
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new Error('Question pair must be JSON text');
+  let pair;
+  try { pair = JSON.parse(value); }
+  catch { throw new Error('Question pair must be valid JSON'); }
+  if (pair === null) return null;
+  if (!Array.isArray(pair) || pair.length !== 2 || pair.some(id => typeof id !== 'string' || !members.some(member => member.id === id)) || pair[0] === pair[1]) {
+    throw new Error('Question pair must contain two distinct family member ids, or null');
+  }
+  return pair.sort();
+}
+
 export function parseAccessDomain(value) {
   if (typeof value !== 'string') throw new Error('An Access team domain is required');
   const domain = value.replace(/^https:\/\//, '').replace(/\/$/, '');

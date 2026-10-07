@@ -12,6 +12,7 @@ import './recipes.css';
 
 const blankRecipe = (): Recipe => ({ title: '', description: '', servings: 4, prepMinutes: 0, cookMinutes: 0, ingredients: [{ name: '', quantity: null, unit: '' }], steps: [''], tags: [], favorite: false });
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+const RECIPES_PER_PAGE = 24;
 
 function recipeVisual(recipe: Recipe): { icon: string; color: string } {
   const words = `${recipe.title} ${recipe.tags.join(' ')}`.toLowerCase();
@@ -30,6 +31,7 @@ export function Recipes() {
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ recipe: Recipe; record?: FamilyRecord<'recipe'>; warnings?: string[] } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -38,16 +40,60 @@ export function Recipes() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const searchInput = useRef<HTMLInputElement>(null);
+  const topPagination = useRef<HTMLElement>(null);
+  const pendingPageFocus = useRef<'previous' | 'next' | null>(null);
+  const pendingRecipeFocus = useRef<string | null>(null);
   const selected = recipes.find(record => record.id === selectedId);
   const tags = [...new Set(recipes.flatMap(record => record.data.tags))].sort((a, b) => a.localeCompare(b));
   const term = query.toLocaleLowerCase().trim();
   const filtered = recipes.filter(({ data }) => (!favoritesOnly || data.favorite) && (!tag || data.tags.includes(tag)) && (!term || [data.title, data.description, ...data.tags, ...data.ingredients.map(item => item.name)].some(value => value.toLocaleLowerCase().includes(term))));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / RECIPES_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const firstRecipe = (currentPage - 1) * RECIPES_PER_PAGE;
+  const pageRecipes = filtered.slice(firstRecipe, firstRecipe + RECIPES_PER_PAGE);
+  useEffect(() => { setPage(previous => Math.min(previous, pageCount)); }, [pageCount]);
+  useEffect(() => {
+    if (selected || editor || importOpen || deleteOpen) return;
+    const direction = pendingPageFocus.current;
+    if (direction) {
+      pendingPageFocus.current = null;
+      const navigation = topPagination.current;
+      const control = navigation?.querySelector<HTMLButtonElement>(`[data-page-direction="${direction}"]:not(:disabled)`)
+        ?? navigation?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+      if (control) { control.focus({ preventScroll: true }); navigation?.scrollIntoView({ block: 'start', behavior: 'instant' }); }
+      else searchInput.current?.focus();
+    } else if (pendingRecipeFocus.current) {
+      const target = document.getElementById(`recipe-open-${pendingRecipeFocus.current}`);
+      pendingRecipeFocus.current = null;
+      if (target) { target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'nearest' }); }
+      else searchInput.current?.focus();
+    }
+  });
+
+  function changePage(direction: 'previous' | 'next') {
+    const next = Math.min(pageCount, Math.max(1, currentPage + (direction === 'next' ? 1 : -1)));
+    if (next === currentPage) return;
+    pendingPageFocus.current = direction;
+    setPage(next);
+  }
+
+  function pagination(position: 'top' | 'bottom') {
+    if (pageCount <= 1) return null;
+    return <nav className="recipe-pagination" ref={position === 'top' ? topPagination : undefined} aria-label={position === 'top' ? 'Recipe pages' : 'Recipe pages at bottom'}>
+      <p className="recipe-page-summary" role={position === 'top' ? 'status' : undefined} aria-live={position === 'top' ? 'polite' : undefined} aria-atomic={position === 'top' ? true : undefined}><span>{firstRecipe + 1}–{firstRecipe + pageRecipes.length} of {filtered.length} recipes</span>{' '}<span className="recipe-page-position">Page {currentPage} of {pageCount}</span></p>
+      <div className="recipe-page-actions"><Button variant="secondary" size="sm" data-page-direction="previous" aria-label="Previous recipe page" aria-controls="recipe-results" disabled={currentPage === 1} onClick={() => changePage('previous')}>Previous</Button><Button variant="secondary" size="sm" data-page-direction="next" aria-label="Next recipe page" aria-controls="recipe-results" disabled={currentPage === pageCount} onClick={() => changePage('next')}>Next</Button></div>
+    </nav>;
+  }
 
   async function toggleFavorite(record: FamilyRecord<'recipe'>) {
     if (busy) return;
     setBusy(true);
     setError('');
-    try { await updateRecord(record, { ...record.data, favorite: !record.data.favorite }); }
+    try {
+      await updateRecord(record, { ...record.data, favorite: !record.data.favorite });
+      if (!selected && favoritesOnly && record.data.favorite) pendingRecipeFocus.current = record.id;
+    }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
@@ -69,6 +115,7 @@ export function Recipes() {
     setError('');
     try {
       await deleteRecord(selected);
+      pendingRecipeFocus.current = selected.id;
       setSelectedId(null);
       setDeleteOpen(false);
       setNotice('Recipe deleted.');
@@ -79,7 +126,7 @@ export function Recipes() {
   return <div className="recipes-module stack">
     {error && <p role="alert" className="recipe-alert">{error}</p>}
     {notice && <div className="recipe-notice" role="status"><Check size={16} /><span>{notice}</span><button type="button" className="recipe-icon-button" aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={16} /></button></div>}
-    {selected ? <RecipeDetail record={selected} busy={busy} onBack={() => setSelectedId(null)} onFavorite={() => void toggleFavorite(selected)} onEdit={() => setEditor({ record: selected, recipe: selected.data })} onDelete={() => setDeleteOpen(true)} /> : <>
+    {selected ? <RecipeDetail record={selected} busy={busy} onBack={() => { pendingRecipeFocus.current = selected.id; setSelectedId(null); }} onFavorite={() => void toggleFavorite(selected)} onEdit={() => setEditor({ record: selected, recipe: selected.data })} onDelete={() => setDeleteOpen(true)} /> : <>
       <SectionHeader eyebrow="THE FAMILY COOKBOOK" title="A little taste of home." description="Weeknight favorites, happy experiments, and recipes worth keeping." action={<div className="recipe-header-actions"><Button variant="secondary" onClick={() => setImportOpen(true)}><Link2 size={16} />Import recipe</Button><Button onClick={() => setEditor({ recipe: blankRecipe() })}><Plus size={17} />Add recipe</Button></div>} />
       <div className="recipe-intro">
         <div><span className="eyebrow">MADE TO BE SHARED</span><h2>Good food.<br />Even better company.</h2><p>A place for everything you love to cook, together.</p></div>
@@ -87,21 +134,23 @@ export function Recipes() {
         <span className="recipe-intro-caption">your own little recipe box</span>
       </div>
       <div className="recipe-library-toolbar">
-        <label className="recipe-search"><Search size={19} aria-hidden="true" /><span className="sr-only">Search recipes or ingredients</span><input className="input" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a recipe or ingredient…" /></label>
-        <button type="button" className={`recipe-filter-button ${favoritesOnly ? 'active' : ''}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(value => !value)}><Heart size={17} fill={favoritesOnly ? 'currentColor' : 'none'} />Favorites</button>
+        <label className="recipe-search"><Search size={19} aria-hidden="true" /><span className="sr-only">Search recipes or ingredients</span><input ref={searchInput} className="input" type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="Find a recipe or ingredient…" /></label>
+        <button type="button" className={`recipe-filter-button ${favoritesOnly ? 'active' : ''}`} aria-pressed={favoritesOnly} onClick={() => { setFavoritesOnly(value => !value); setPage(1); }}><Heart size={17} fill={favoritesOnly ? 'currentColor' : 'none'} />Favorites</button>
       </div>
-      <div className="recipe-collection-line"><div className="recipe-tag-filters" aria-label="Recipe tags"><button type="button" className={`recipe-tag ${!tag ? 'active' : ''}`} aria-pressed={!tag} onClick={() => setTag('')}>All recipes</button>{tags.map(item => <button type="button" key={item} className={`recipe-tag ${tag === item ? 'active' : ''}`} aria-pressed={tag === item} onClick={() => setTag(tag === item ? '' : item)}>{item}</button>)}</div><span className="muted recipe-count">{filtered.length} {filtered.length === 1 ? 'recipe' : 'recipes'}</span></div>
-      {filtered.length ? <div className="recipe-grid">{filtered.map(record => {
+      <div className="recipe-collection-line"><div className="recipe-tag-filters" aria-label="Recipe tags"><button type="button" className={`recipe-tag ${!tag ? 'active' : ''}`} aria-pressed={!tag} onClick={() => { setTag(''); setPage(1); }}>All recipes</button>{tags.map(item => <button type="button" key={item} className={`recipe-tag ${tag === item ? 'active' : ''}`} aria-pressed={tag === item} onClick={() => { setTag(tag === item ? '' : item); setPage(1); }}>{item}</button>)}</div><span className="muted recipe-count">{filtered.length} {filtered.length === 1 ? 'recipe' : 'recipes'}</span></div>
+      {pagination('top')}
+      {filtered.length ? <div id="recipe-results" className="recipe-grid">{pageRecipes.map(record => {
         const recipe = record.data;
         const visual = recipeVisual(recipe);
         return <article key={record.id} className="recipe-card">
-          <button type="button" className="recipe-card-open" onClick={() => { setSelectedId(record.id); setNotice(''); }} aria-label={`View ${recipe.title}`}>
+          <button id={`recipe-open-${record.id}`} type="button" className="recipe-card-open" onClick={() => { setSelectedId(record.id); setNotice(''); }} aria-label={`View ${recipe.title}`}>
             <div className={`recipe-art ${visual.color}`}><div className="recipe-art-lines" /><span className="recipe-art-dish" aria-hidden="true">{visual.icon}</span><span className="recipe-art-label">FROM OUR KITCHEN</span></div>
             <div className="recipe-card-copy"><span className="recipe-card-category">{recipe.tags[0] || 'FAMILY RECIPE'}</span><h3>{recipe.title}</h3><p>{recipe.description || 'A little something from your family kitchen.'}</p><div className="recipe-card-meta"><span><Clock3 size={14} />{durationLabel(recipe.prepMinutes + recipe.cookMinutes)}</span><span><Users size={14} />Serves {recipe.servings}</span></div></div>
           </button>
           <button type="button" className={`recipe-favorite ${recipe.favorite ? 'is-favorite' : ''}`} disabled={busy} aria-label={`${recipe.favorite ? 'Unfavorite' : 'Favorite'} ${recipe.title}`} aria-pressed={recipe.favorite} onClick={() => void toggleFavorite(record)}><Heart size={18} fill={recipe.favorite ? 'currentColor' : 'none'} /></button>
         </article>;
-      })}</div> : <EmptyState icon={<BookOpen size={32} />} title={recipes.length ? 'Nothing in the recipe box matches.' : 'Your family cookbook starts here.'} description={recipes.length ? 'Try another ingredient, tag, or favorite filter.' : 'Add your go-to dinner, save a recipe link, or bring a handwritten favorite along.'} action={recipes.length ? <Button variant="secondary" onClick={() => { setQuery(''); setTag(''); setFavoritesOnly(false); }}>Clear filters</Button> : <Button onClick={() => setEditor({ recipe: blankRecipe() })}><Plus size={16} />Add your first recipe</Button>} />}
+      })}</div> : <EmptyState icon={<BookOpen size={32} />} title={recipes.length ? 'Nothing in the recipe box matches.' : 'Your family cookbook starts here.'} description={recipes.length ? 'Try another ingredient, tag, or favorite filter.' : 'Add your go-to dinner, save a recipe link, or bring a handwritten favorite along.'} action={recipes.length ? <Button variant="secondary" onClick={() => { setQuery(''); setTag(''); setFavoritesOnly(false); setPage(1); }}>Clear filters</Button> : <Button onClick={() => setEditor({ recipe: blankRecipe() })}><Plus size={16} />Add your first recipe</Button>} />}
+      {pagination('bottom')}
     </>}
     <Modal open={editor !== null} title={editor?.record ? 'Edit your recipe' : editor?.warnings ? 'Review your imported recipe' : 'Something good to keep'} description="Make it your own. You can always come back and edit." onClose={() => { if (!saving) setEditor(null); }}>
       {editor && <RecipeEditor key={editor.record?.id || 'new'} initial={editor.recipe} warnings={editor.warnings} saving={saving} onSave={saveRecipe} onCancel={() => { if (!saving) setEditor(null); }} />}

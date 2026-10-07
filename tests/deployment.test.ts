@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { validateDeployment } from '../scripts/deployment-config.mjs';
+import { deploymentSecretNames, validateDeployment } from '../scripts/deployment-config.mjs';
 import { readConfig } from '../src/server/auth';
 import type { Env } from '../src/server/env';
 
@@ -28,6 +28,7 @@ describe('production deployment configuration', () => {
     expect(result.deployment?.databaseName).toBe('renamed-family-database');
     expect(result.deployment?.secrets.ACCESS_TEAM_DOMAIN).toBe('hearth.cloudflareaccess.com');
     expect(result.deployment?.secrets.DEV_AUTH).toBe('false');
+    expect(result.deployment?.secrets.FAMILY_QUESTION_PAIR).toBe('["alex","sam"]');
     expect(result.deployment?.secrets).not.toHaveProperty('CLOUDFLARE_API_TOKEN');
     expect(result.deployment?.secrets).not.toHaveProperty('CLOUDFLARE_ACCOUNT_ID');
     expect(readConfig({ ...result.deployment?.secrets, FAMILY_TIMEZONE: 'America/New_York' } as Env, environment().APP_ORIGIN!).members).toEqual(members);
@@ -68,6 +69,7 @@ describe('production deployment configuration', () => {
   it('rejects conflicting account, plaintext secrets, and invalid timezone settings', () => {
     expect(validate({ ...configuration(), account_id: 'different-account' }).problems.join(' ')).toContain('account_id');
     expect(validate({ ...configuration(), vars: { FAMILY_MEMBERS: environment().FAMILY_MEMBERS } }).problems.join(' ')).toContain('secrets');
+    expect(validate({ ...configuration(), vars: { FAMILY_QUESTION_PAIR: '["alex","sam"]' } }).problems.join(' ')).toContain('secrets');
     expect(validate({ ...configuration(), vars: { FAMILY_TIMEZONE: 'bad/zone' } }).problems.join(' ')).toContain('FAMILY_TIMEZONE');
     expect(validate({ ...configuration(), vars: null }).problems.join(' ')).toContain('vars');
   });
@@ -97,6 +99,58 @@ describe('production deployment configuration', () => {
 
   it.each(['http://hearth.cloudflareaccess.com', 'hearth.cloudflareaccess.com/extra', 'evil.dev', 'hearth.cloudflareaccess.com.evil.dev', '-bad.cloudflareaccess.com', 'bad-.cloudflareaccess.com', 'x'.repeat(64) + '.cloudflareaccess.com', ''])('rejects invalid Access issuer configuration: %s', ACCESS_TEAM_DOMAIN => {
     expect(validate(configuration(), { ...environment(), ACCESS_TEAM_DOMAIN }).problems.join(' ')).toContain('ACCESS_TEAM_DOMAIN');
+  });
+});
+
+describe('daily question pair deployment', () => {
+  const extendedMembers = [...members, { id: 'lee', name: 'Lee', email: 'lee@family-home.dev', role: 'member', color: '#555555' }];
+  const largerEnvironment = () => ({ ...environment(), FAMILY_MEMBERS: JSON.stringify(extendedMembers) });
+
+  it('treats the pair secret as optional and writes a canonical value', () => {
+    expect(deploymentSecretNames).toContain('FAMILY_QUESTION_PAIR');
+    const inferred = validate();
+    expect(inferred.problems).toEqual([]);
+    expect(inferred.deployment?.secrets.FAMILY_QUESTION_PAIR).toBe('["alex","sam"]');
+    expect(readConfig(inferred.deployment!.secrets as unknown as Env, environment().APP_ORIGIN!).questionPair).toEqual(['alex', 'sam']);
+    const explicit = validate(configuration(), { ...largerEnvironment(), FAMILY_QUESTION_PAIR: '["sam","alex"]' });
+    expect(explicit.problems).toEqual([]);
+    expect(explicit.deployment?.secrets.FAMILY_QUESTION_PAIR).toBe('["alex","sam"]');
+    expect(readConfig(explicit.deployment!.secrets as unknown as Env, environment().APP_ORIGIN!).questionPair).toEqual(['alex', 'sam']);
+  });
+
+  it('always overwrites the prior secret after configuration is removed or disabled', () => {
+    const paired = validate(configuration(), { ...largerEnvironment(), FAMILY_QUESTION_PAIR: '["sam","lee"]' });
+    expect(paired.deployment?.secrets.FAMILY_QUESTION_PAIR).toBe('["lee","sam"]');
+    for (const env of [largerEnvironment(), { ...environment(), FAMILY_MEMBERS: JSON.stringify([members[0]]) }, { ...environment(), FAMILY_QUESTION_PAIR: 'null' }]) {
+      const result = validate(configuration(), env);
+      expect(result.problems).toEqual([]);
+      expect(result.deployment?.secrets).toHaveProperty('FAMILY_QUESTION_PAIR', 'null');
+      expect({ ...paired.deployment?.secrets, ...result.deployment?.secrets }.FAMILY_QUESTION_PAIR).toBe('null');
+      expect(readConfig(result.deployment!.secrets as unknown as Env, environment().APP_ORIGIN!).questionPair).toBeNull();
+    }
+    expect(validate().deployment?.secrets.FAMILY_QUESTION_PAIR).toBe('["alex","sam"]');
+  });
+
+  it.each(['', '[bad json', '{}', '[]', '["alex"]', '["alex","sam","lee"]', '["alex","alex"]', '["alex","unknown-private-id"]'])('rejects invalid pair configuration without printing values: %s', FAMILY_QUESTION_PAIR => {
+    const env = { ...largerEnvironment(), FAMILY_QUESTION_PAIR };
+    const result = validate(configuration(), env);
+    expect(result.deployment).toBeUndefined();
+    expect(result.problems.join(' ')).toContain('FAMILY_QUESTION_PAIR');
+    expect(result.problems.join(' ')).not.toContain('unknown-private-id');
+    expect(result.problems.join(' ')).not.toContain(members[0].email);
+    expect(() => readConfig(env as unknown as Env, environment().APP_ORIGIN!)).toThrow('Family access is not configured.');
+  });
+
+  it('the actual CLI reports invalid pair configuration without echoing its contents', () => {
+    const child = spawnSync(process.execPath, ['scripts/preflight.mjs'], {
+      cwd: new URL('../', import.meta.url), encoding: 'utf8',
+      env: { ...process.env, ...environment(), FAMILY_QUESTION_PAIR: '["private-pair-sentinel","sam"]' },
+    });
+    expect(child.status).toBe(1);
+    expect(child.stderr).toContain('FAMILY_QUESTION_PAIR');
+    expect(child.stderr + child.stdout).not.toContain('private-pair-sentinel');
+    expect(child.stderr + child.stdout).not.toContain('private-audience-sentinel');
+    expect(child.stderr + child.stdout).not.toContain(members[0].email);
   });
 });
 
