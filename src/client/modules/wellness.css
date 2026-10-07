@@ -1,0 +1,122 @@
+.wellness-page { --wellness-green: #2f624b; --wellness-ink: #263c31; --wellness-muted: #626b62; --wellness-border: #dedfd3; }
+.wellness-page h2, .wellness-page h3, .wellness-page p { margin-top: 0; }
+.wellness-page h2 { font-size: 1.6rem; line-height: 1.25; }
+.wellness-page h3 { font-size: 1.1rem; }
+.wellness-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wellness-row > div { min-width: 0; }
+.wellness-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.wellness-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.wellness-form-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.wellness-fieldset legend { font-size: .86rem; font-weight: 600; margin-bottom: 12px; }
+.wellness-error, .wellness-success, .wellness-notice { padding: 12px 15px; border-radius: 10px; font-size: .88rem; line-height: 1.5; margin: 0; }
+.wellness-error { color: #8b322c; background: #f8e8e1; border: 1px solid #e8bcb1; }
+.wellness-success { color: #29503c; background: #eaf2e9; }
+.wellness-notice { background: #f5eedc; color: #69542d; }
+.wellness-notice p { margin-bottom: 8px; }
+.wellness-page button:focus-visible, .wellness-page label:has(input:focus-visible) { outline: 3px solid #9a623d; outline-offset: 3px; }
+.habit-layout { display: grid; grid-template-columns: minmax(230px, .8fr) minmax(0, 1.7fr); gap: 28px; align-items: start; }
+.habit-list { display: flex; flex-direction: column; gap: 9px; }
+.habit-selector { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 17px 14px; border: 1px solid var(--wellness-border); background: #fffdf8; border-radius: 13px; cursor: pointer; color: var(--wellness-ink); }
+.habit-selector.is-selected { border-color: #8daa91; background: #eaf0e6; box-shadow: inset 3px 0 var(--wellness-green); }
+.habit-color { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; border-radius: 12px; color: white; }
+.habit-label { min-width: 0; flex: 1; }
+.habit-label strong { display: block; font-size: .91rem; overflow-wrap: anywhere; }
+.habit-label > span { display: block; margin-top: 4px; font-size: .76rem; color: var(--wellness-muted); }
+.habit-mini-streak { font-size: 1.4rem; font-family: Georgia, serif; text-align: center; }
+.habit-mini-streak small { display: block; font: .65rem system-ui, sans-serif; margin-top: 2px; }
+.habit-encouragement, .question-conversation { padding: 25px 18px; background: #f0e9dd; border-radius: 14px; }
+.habit-encouragement p, .question-conversation p { font: italic 1.16rem/1.6 Georgia, serif; margin: 10px 0 0; color: #685944; }
+.habit-detail { padding: 28px; }
+.habit-detail > .wellness-row h2 { margin-bottom: 0; overflow-wrap: anywhere; }
+.streak-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 27px 0; padding: 20px 0; border-top: 1px solid var(--wellness-border); border-bottom: 1px solid var(--wellness-border); }
+.streak-stats > div { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; }
+.streak-stats > div > span:last-child { font-size: .73rem; color: var(--wellness-muted); }
+.streak-stat-number { display: flex; align-items: center; gap: 6px; color: var(--wellness-green); font: 2rem Georgia, serif; }
+.streak-stat-number svg { color: #b66547; }
+.calendar-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.calendar-heading h3 { margin: 0; }
+.calendar-heading .wellness-row { gap: 2px; }
+.habit-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.calendar-weekday { text-align: center; font-size: .68rem; color: var(--wellness-muted); padding: 8px 0; }
+.calendar-day { min-width: 0; aspect-ratio: 1; min-height: 37px; border: 1px solid transparent; background: #f5f4ed; border-radius: 9px; display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; color: #506255; font-size: .88rem; cursor: pointer; }
+.calendar-day.is-complete { background: #dce9d9; color: #2b523b; font-weight: 600; }
+.calendar-day.is-today { border: 2px solid #477352; }
+.calendar-day:disabled { cursor: default; }
+.calendar-day:disabled:not(.is-complete) { color: #82867c; background: #faf9f3; }
+.calendar-day:not(:disabled):hover { box-shadow: inset 0 0 0 2px #839d76; }
+.calendar-legend { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: .69rem; color: var(--wellness-muted); margin: 16px 0 24px; }
+.calendar-legend > span { display: inline-flex; gap: 7px; align-items: center; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; background: #7c9d70; }
+.habit-checkin { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.habit-checkin p, .habit-view-note { font-size: .76rem; line-height: 1.6; margin: 0; }
+.habit-colors { display: flex; gap: 12px; }
+.habit-color-choice { height: 38px; width: 38px; display: grid; place-items: center; border-radius: 50%; color: white; cursor: pointer; position: relative; }
+.habit-color-choice input, .mood-option input, .question-choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.mood-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+.mood-entry { padding: 28px; scroll-margin-top: 90px; }
+.mood-entry .wellness-row h2 { margin: 0; }
+.mood-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.mood-option { position: relative; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; text-align: center; gap: 9px; border-radius: 12px; padding: 15px 3px 12px; border: 1px solid #e3dfd2; color: #625f50; background: #faf8f1; font-size: .68rem; line-height: 1.3; }
+.mood-option.is-selected { background: #e7eedf; border-color: #7f9b74; color: #294e37; }
+.mood-symbol { font-size: 1.9rem; height: 36px; display: grid; place-items: center; }
+.mood-sharing { display: flex; align-items: flex-start; gap: 11px; padding: 14px; background: #f5f4ec; border-radius: 10px; cursor: pointer; }
+.mood-sharing input { flex: 0 0 17px; height: 17px; width: 17px; margin-top: 2px; accent-color: #356147; }
+.mood-sharing > span { display: flex; flex-direction: column; gap: 5px; }
+.mood-sharing strong { font-size: .79rem; font-weight: 600; }
+.mood-sharing > span > span { font-size: .73rem; line-height: 1.6; color: var(--wellness-muted); }
+.mood-sharing.is-shared { background: #eaf1e4; }
+.mood-privacy { display: flex; align-items: flex-start; gap: 7px; font-size: .72rem; line-height: 1.6; margin: 0; }
+.mood-privacy svg { flex-shrink: 0; margin-top: 2px; }
+.mood-history > .wellness-row h2 { margin: 0; }
+.mood-history > .wellness-row svg { color: #a06c56; }
+.wellness-tabs { display: flex; gap: 4px; padding: 4px; background: #eae9df; border-radius: 10px; }
+.wellness-tabs button { flex: 1; background: transparent; border: 0; border-radius: 7px; padding: 10px 8px; font-size: .78rem; color: #596657; cursor: pointer; }
+.wellness-tabs button.is-active { background: #fffdf7; box-shadow: 0 1px 4px #27382712; color: #294b37; }
+.mood-history-card { padding: 20px; }
+.mood-history-title { display: flex; align-items: center; gap: 12px; }
+.mood-history-title h3 { margin: 0 0 4px; }
+.mood-history-title p { font-size: .72rem; margin: 0; }
+.mood-history-symbol { font-size: 1.8rem; width: 44px; height: 44px; border-radius: 50%; background: #f1edde; display: grid; place-items: center; flex-shrink: 0; }
+.mood-note { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .89rem; line-height: 1.7; margin: 17px 0 0; }
+.mood-history-actions { display: flex; justify-content: flex-end; margin-top: 12px; gap: 3px; }
+.mood-history-actions .button { font-size: .7rem; }
+.questions-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(260px, 1fr); gap: 28px; align-items: start; }
+.question-card { padding: 32px; }
+.question-card h2.daily-question { font-size: clamp(1.8rem, 2.8vw, 2.35rem); line-height: 1.35; margin: 12px 0 4px; max-width: 600px; }
+.question-card > .wellness-row > .muted { font-size: .76rem; }
+.question-choices { display: flex; flex-direction: column; gap: 10px; }
+.question-choice { display: flex; align-items: center; position: relative; gap: 12px; border: 1px solid #deded0; padding: 14px; border-radius: 12px; cursor: pointer; font-size: .88rem; line-height: 1.45; }
+.question-choice.is-selected { background: #eaf0e3; border-color: #87a27b; color: #284b34; }
+.question-letter { flex: 0 0 28px; width: 28px; height: 28px; display: grid; place-items: center; background: #f0efe5; border-radius: 7px; font-size: .74rem; color: #697364; }
+.question-choice.is-selected .question-letter { background: #cadbc1; color: #294b35; }
+.question-choice > svg { margin-left: auto; flex-shrink: 0; }
+.question-privacy { display: flex; align-items: flex-start; gap: 9px; padding-top: 18px; border-top: 1px solid #e5e4d8; font-size: .73rem; line-height: 1.7; color: var(--wellness-muted); margin-bottom: 0; }
+.question-privacy svg { flex-shrink: 0; margin-top: 3px; }
+.question-own-answer { background: #eaf0e3; padding: 21px; border-radius: 12px; display: flex; align-items: flex-start; gap: 15px; justify-content: space-between; }
+.question-own-answer p { margin: 8px 0; font: 1.17rem/1.5 Georgia, serif; }
+.question-own-answer .muted { font-size: .7rem; }
+.question-own-answer button { flex-shrink: 0; }
+.question-reveal { padding: 28px; }
+.question-reveal-icon { width: 61px; height: 61px; background: #e7ecdf; color: #446749; display: grid; place-items: center; border-radius: 50%; margin-bottom: 23px; }
+.question-reveal h2 { font-size: 1.6rem; }
+.question-reveal > .muted { font-size: .82rem; line-height: 1.8; }
+.question-waiting { padding: 17px 0; border-top: 1px solid #e5e4d8; display: flex; align-items: center; gap: 9px; font-size: .79rem; color: #486046; }
+.question-waiting svg:last-child { margin-left: auto; }
+.question-results { display: flex; flex-direction: column; gap: 18px; padding-top: 10px; }
+.question-result { display: flex; align-items: flex-start; gap: 11px; }
+.question-avatar { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%; color: white; font-weight: 600; font-size: .9rem; }
+.question-result strong { font-size: .8rem; }
+.question-result p { font-size: .8rem; line-height: 1.6; color: var(--wellness-muted); margin: 5px 0 0; }
+.question-history { margin-top: 20px; }
+.question-history > h2 { margin-bottom: 0; }
+.question-history-card { padding: 24px; }
+.question-history-card h3 { font-family: Georgia, serif; font-size: 1.15rem; line-height: 1.5; }
+.question-history-card p:not(.eyebrow) { font-size: .82rem; line-height: 1.6; }
+.question-history-card p:last-child { margin-bottom: 0; }
+.question-history-card p svg { vertical-align: -2px; margin-right: 4px; }
+.question-history-answer { padding: 10px 0; border-top: 1px solid #ece9df; }
+.question-history-answer p { margin: 0 0 6px; }
+.question-history-answer .button { font-size: .72rem; padding: 5px 0; }
+@media (max-width: 1050px) { .mood-layout { gap: 20px; } .mood-entry { padding: 21px; } .questions-layout { gap: 20px; grid-template-columns: minmax(0, 1.4fr) minmax(250px, 1fr); } .question-card { padding: 24px; } .question-reveal { padding: 22px; } .habit-layout { gap: 20px; } }
+@media (max-width: 760px) { .habit-layout, .mood-layout, .questions-layout { grid-template-columns: 1fr; } .habit-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .habit-encouragement { display: none; } .habit-detail { padding: 22px; } .question-aside { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; } .mood-options { gap: 9px; } .mood-option { font-size: .76rem; } }
+@media (max-width: 480px) { .habit-list { grid-template-columns: 1fr; } .habit-detail, .question-card, .mood-entry { padding: 18px; } .question-aside { display: flex; flex-direction: column; } .question-reveal, .question-conversation { width: 100%; } .question-own-answer { flex-direction: column; } .mood-options { gap: 5px; } .mood-option { font-size: .62rem; } .calendar-day { min-height: 35px; } .calendar-heading h3 { font-size: 1rem; } .calendar-heading .button { padding: 8px; } .calendar-heading .wellness-row { gap: 0; } }

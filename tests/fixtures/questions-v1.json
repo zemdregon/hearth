@@ -1,0 +1,358 @@
+{
+  "effectiveFrom": null,
+  "epoch": "2026-01-01",
+  "questions": [
+    {
+      "id": "recharge",
+      "prompt": "What would help you recharge together this week?",
+      "profileLabel": "A favorite way to recharge",
+      "choices": [
+        "A quiet evening at home",
+        "A walk somewhere green",
+        "A meal out together",
+        "An adventure somewhere new"
+      ]
+    },
+    {
+      "id": "small-care",
+      "prompt": "Which small act of care means the most to you?",
+      "profileLabel": "A small act of care I love",
+      "choices": [
+        "A thoughtful message",
+        "Help with an everyday task",
+        "Undivided time together",
+        "A little surprise"
+      ]
+    },
+    {
+      "id": "weekend",
+      "prompt": "Your ideal free Saturday starts with…",
+      "profileLabel": "My ideal Saturday morning",
+      "choices": [
+        "A slow breakfast",
+        "Getting outside early",
+        "Making something creative",
+        "No plans at all"
+      ]
+    },
+    {
+      "id": "listen",
+      "prompt": "When you share a hard day, what feels most helpful first?",
+      "profileLabel": "What helps after a hard day",
+      "choices": [
+        "Someone simply listening",
+        "A little reassurance",
+        "Thinking through next steps",
+        "A gentle distraction"
+      ]
+    },
+    {
+      "id": "celebrate",
+      "prompt": "How would you most like to celebrate a small win?",
+      "profileLabel": "How I celebrate small wins",
+      "choices": [
+        "A favorite treat",
+        "A sincere word of appreciation",
+        "Doing something fun together",
+        "A quiet moment to enjoy it"
+      ]
+    },
+    {
+      "id": "learn",
+      "prompt": "What would you enjoy learning together?",
+      "profileLabel": "Something I would love to learn together",
+      "choices": [
+        "A new recipe",
+        "A practical home skill",
+        "A language or instrument",
+        "A new sport or outdoor skill"
+      ]
+    },
+    {
+      "id": "tradition",
+      "prompt": "Which simple tradition would you most like to start?",
+      "profileLabel": "A tradition I would enjoy",
+      "choices": [
+        "A weekly shared meal",
+        "A regular evening walk",
+        "A monthly day out",
+        "A yearly photo and reflection"
+      ]
+    },
+    {
+      "id": "home-feeling",
+      "prompt": "What most helps a place feel like home?",
+      "profileLabel": "What makes home feel like home",
+      "choices": [
+        "Familiar food and smells",
+        "A calm, comfortable space",
+        "The people around me",
+        "Objects with shared memories"
+      ]
+    },
+    {
+      "id": "surprise-plan",
+      "prompt": "How do you like a day out to be planned?",
+      "profileLabel": "My preferred way to plan a day out",
+      "choices": [
+        "Every detail arranged",
+        "One anchor plan and room to wander",
+        "A complete surprise",
+        "Spontaneously on the day"
+      ]
+    },
+    {
+      "id": "gratitude",
+      "prompt": "How do you most naturally show appreciation?",
+      "profileLabel": "How I tend to show appreciation",
+      "choices": [
+        "Saying it directly",
+        "Helping out",
+        "Making time",
+        "Giving something thoughtful"
+      ]
+    },
+    {
+      "id": "shared-space",
+      "prompt": "Which shared space would you most like to make cozier?",
+      "profileLabel": "A space I would love to make cozier",
+      "choices": [
+        "The kitchen or dining area",
+        "The living room",
+        "An outdoor corner",
+        "A reading or hobby nook"
+      ]
+    },
+    {
+      "id": "memory",
+      "prompt": "Which kind of memory would you love to make next?",
+      "profileLabel": "A memory I would love to make",
+      "choices": [
+        "A trip somewhere new",
+        "A day with people we love",
+        "Finishing something together",
+        "A wonderfully ordinary day"
+      ]
+    },
+    {
+      "id": "food-night",
+      "prompt": "What kind of dinner together sounds best?",
+      "profileLabel": "My kind of dinner together",
+      "choices": [
+        "Cooking an old favorite",
+        "Trying a new recipe",
+        "Sharing takeaway",
+        "A picnic with simple food"
+      ]
+    },
+    {
+      "id": "connection",
+      "prompt": "When do you tend to feel most connected?",
+      "profileLabel": "When I feel connected",
+      "choices": [
+        "During a good conversation",
+        "While doing something side by side",
+        "When we laugh together",
+        "In a comfortable quiet moment"
+      ]
+    },
+    {
+      "id": "pace",
+      "prompt": "What pace would you choose for a short break?",
+      "profileLabel": "My ideal pace for a break",
+      "choices": [
+        "Restful and unhurried",
+        "A mix of rest and exploring",
+        "Lots to see and do",
+        "Deciding as we go"
+      ]
+    },
+    {
+      "id": "encouragement",
+      "prompt": "Which encouragement would help you start something new?",
+      "profileLabel": "Encouragement that helps me",
+      "choices": [
+        "“I believe in you.”",
+        "“Let’s try it together.”",
+        "“You can take your time.”",
+        "“What would make this easier?”"
+      ]
+    },
+    {
+      "id": "evening",
+      "prompt": "How would you choose to spend a free evening together?",
+      "profileLabel": "A favorite free evening",
+      "choices": [
+        "A film or favorite show",
+        "A game or puzzle",
+        "A long conversation",
+        "A walk or small outing"
+      ]
+    },
+    {
+      "id": "gift",
+      "prompt": "Which kind of thoughtful gift feels most like you?",
+      "profileLabel": "A kind of gift I appreciate",
+      "choices": [
+        "Something useful",
+        "An experience to share",
+        "Something handmade",
+        "A little everyday luxury"
+      ]
+    },
+    {
+      "id": "season",
+      "prompt": "Which seasonal ritual would you look forward to most?",
+      "profileLabel": "A seasonal ritual I enjoy",
+      "choices": [
+        "Cooking seasonal favorites",
+        "Getting outside to notice changes",
+        "Decorating or making something",
+        "Gathering with friends or family"
+      ]
+    },
+    {
+      "id": "teamwork",
+      "prompt": "What makes working together feel easier?",
+      "profileLabel": "What helps me work as a team",
+      "choices": [
+        "Clear plans and roles",
+        "A relaxed, flexible approach",
+        "Frequent little check-ins",
+        "A shared sense of humor"
+      ]
+    },
+    {
+      "id": "unwind",
+      "prompt": "How do you usually like to unwind after a busy day?",
+      "profileLabel": "How I like to unwind",
+      "choices": [
+        "A little time alone first",
+        "Talking about the day",
+        "Moving my body",
+        "Doing something familiar"
+      ]
+    },
+    {
+      "id": "discovery",
+      "prompt": "What would you like to discover nearby?",
+      "profileLabel": "Something nearby I would love to explore",
+      "choices": [
+        "A beautiful walking route",
+        "A small café or restaurant",
+        "A museum or interesting place",
+        "A class, club, or local event"
+      ]
+    },
+    {
+      "id": "keepsake",
+      "prompt": "How would you most like to keep shared memories?",
+      "profileLabel": "How I like to keep memories",
+      "choices": [
+        "Photographs",
+        "A journal or written notes",
+        "Small meaningful objects",
+        "Retelling the stories together"
+      ]
+    },
+    {
+      "id": "kind-words",
+      "prompt": "Which kind of appreciation lands best with you?",
+      "profileLabel": "Appreciation I value",
+      "choices": [
+        "Noticing my effort",
+        "Naming something you admire",
+        "Thanking me for something specific",
+        "Remembering something that matters to me"
+      ]
+    },
+    {
+      "id": "project",
+      "prompt": "Which small project would be fun to do together?",
+      "profileLabel": "A project I would enjoy together",
+      "choices": [
+        "Growing something",
+        "Organizing a cozy corner",
+        "Making a photo album",
+        "Building or crafting something"
+      ]
+    },
+    {
+      "id": "morning",
+      "prompt": "What would make a shared morning a little better?",
+      "profileLabel": "A little thing that improves my morning",
+      "choices": [
+        "Time for tea or coffee together",
+        "A few quiet minutes",
+        "Some music and movement",
+        "A plan for the day"
+      ]
+    },
+    {
+      "id": "welcome",
+      "prompt": "What helps you feel welcomed home?",
+      "profileLabel": "What makes me feel welcomed home",
+      "choices": [
+        "A warm hello and a check-in",
+        "A little time to settle in",
+        "An inviting shared space",
+        "Someone remembering my day"
+      ]
+    },
+    {
+      "id": "adventure",
+      "prompt": "Which small adventure would you choose?",
+      "profileLabel": "My kind of small adventure",
+      "choices": [
+        "Taking an unfamiliar route",
+        "Trying food I have never had",
+        "Visiting a place picked at random",
+        "Trying a new creative activity"
+      ]
+    },
+    {
+      "id": "time",
+      "prompt": "If we found an extra hour together, what would you pick?",
+      "profileLabel": "How I would spend an extra hour together",
+      "choices": [
+        "Getting some fresh air",
+        "Catching up without distractions",
+        "Doing something playful",
+        "Resting side by side"
+      ]
+    },
+    {
+      "id": "future",
+      "prompt": "Which shared possibility feels most exciting to imagine?",
+      "profileLabel": "A shared possibility that excites me",
+      "choices": [
+        "Places we could explore",
+        "A home we could shape",
+        "Skills we could grow",
+        "Traditions we could build"
+      ]
+    },
+    {
+      "id": "play",
+      "prompt": "What brings out your playful side?",
+      "profileLabel": "What brings out my playful side",
+      "choices": [
+        "A friendly game",
+        "Silly stories and jokes",
+        "Music or dancing",
+        "Trying something without needing to be good"
+      ]
+    },
+    {
+      "id": "check-in",
+      "prompt": "What would make a regular check-in feel good?",
+      "profileLabel": "My preferred kind of check-in",
+      "choices": [
+        "One good thing and one hard thing",
+        "Talking while we walk",
+        "A cup of tea and no agenda",
+        "Making a little plan together"
+      ]
+    }
+  ]
+}

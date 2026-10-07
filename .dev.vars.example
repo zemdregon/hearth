@@ -1,0 +1,7 @@
+# Copy to .dev.vars for LOCAL development only. Never deploy DEV_AUTH.
+DEV_AUTH="true"
+APP_ORIGIN="http://localhost:5173"
+FAMILY_TIMEZONE="UTC"
+FAMILY_MEMBERS='[{"id":"alex","name":"Alex","email":"alex@example.test","role":"admin","color":"#557461"},{"id":"sam","name":"Sam","email":"sam@example.test","role":"member","color":"#b56d51"}]'
+# Workers AI requires a configured account for real model calls. The UI demo and
+# manually authored recipes work without Cloudflare credentials.

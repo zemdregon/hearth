@@ -1,0 +1,34 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { validateDeployment } from './deployment-config.mjs';
+
+export const projectDirectory = fileURLToPath(new URL('../', import.meta.url));
+export const configPath = resolve(projectDirectory, 'wrangler.jsonc');
+
+export function preflight(environment = process.env) {
+  let config;
+  try { config = JSON.parse(readFileSync(configPath, 'utf8')); }
+  catch { return { problems: ['wrangler.jsonc must be valid JSON for deployment preflight.'] }; }
+  const result = validateDeployment(config, environment);
+  if (result.deployment) {
+    try {
+      const migrations = readdirSync(resolve(dirname(configPath), result.deployment.migrationsDirectory));
+      if (!migrations.includes('0001_initial.sql') || !migrations.includes('0002_storage_budget.sql')) throw new Error('Missing schema');
+    } catch { return { problems: ['The DB migrations directory must contain all Hearth schema migrations.'] }; }
+  }
+  return result;
+}
+
+export function printPreflight(result) {
+  if (result.problems.length) {
+    console.error(`Deployment is not ready:\n${result.problems.map(problem => ` • ${problem}`).join('\n')}`);
+    return false;
+  }
+  console.log('Local deployment configuration checks passed. Cloudflare Access protection and credential permissions still require verification in the intended account.');
+  return true;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  if (!printPreflight(preflight())) process.exitCode = 1;
+}
