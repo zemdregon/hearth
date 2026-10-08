@@ -3,6 +3,38 @@ import type { Bootstrap, FamilyRecord } from '../../src/shared/types';
 import { addDays } from '../../src/shared/calendar';
 import { questionForDate } from '../../src/shared/questions';
 
+test('real Worker conditional refresh authenticates and returns no private body when unchanged', async ({ request }) => {
+  const initial = await request.get('/api/bootstrap');
+  expect(initial.status()).toBe(200);
+  const validator = initial.headers().etag;
+  expect(validator).toMatch(/^W\/"hearth-[a-f0-9]{64}"$/);
+  const response = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator } });
+  expect(response.status()).toBe(304);
+  expect(await response.body()).toHaveLength(0);
+  expect(response.headers()['cache-control']).toContain('no-store');
+  expect(response.headers().etag).toBe(validator);
+  const other = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator, 'X-Dev-User': 'sam@example.test' } });
+  expect(other.status()).toBe(200);
+  expect((await other.json() as Bootstrap).user.id).toBe('sam');
+  expect(other.headers().etag).not.toBe(validator);
+  const denied = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator, 'X-Dev-User': 'outsider@example.test' } });
+  expect(denied.status()).toBe(403);
+});
+
+test('real browser retains its family view after a Worker 304 response', async ({ page }) => {
+  const loaded = page.waitForResponse(response => response.url().endsWith('/api/bootstrap') && response.status() === 200);
+  await page.goto('/#tasks');
+  const initial = await loaded;
+  const validator = initial.headers().etag;
+  await expect(page.getByRole('heading', { name: 'Shared tasks', exact: true })).toBeVisible();
+  const refreshed = page.waitForResponse(response => response.url().endsWith('/api/bootstrap') && response.status() === 304);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const unchanged = await refreshed;
+  expect(unchanged.request().headers()['if-none-match']).toBe(validator);
+  await expect(page.getByRole('heading', { name: 'Shared tasks', exact: true })).toBeVisible();
+  await expect(page.locator('.sync-error')).toHaveCount(0);
+});
+
 test('real Worker and D1 persist shared edits, enforce conflicts, privacy, and module controls', async ({ request })=>{
   const origin='http://localhost:5173';
   const headers={ Origin:origin, 'Content-Type':'application/json' };

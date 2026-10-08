@@ -8,15 +8,19 @@ import { sameQuestionPair } from '../shared/question-pairing';
 
 const anonymous: User = { id: '', name: '', email: '', role: 'member', color: '#557461' };
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try { response = await fetch(path, { ...init, credentials:'same-origin', headers:{'Content-Type':'application/json',...init?.headers} }); }
+async function apiResponse(path: string, init?: RequestInit): Promise<Response> {
+  const headers=new Headers(init?.headers);
+  if(!headers.has('Content-Type')) headers.set('Content-Type','application/json');
+  try { return await fetch(path, { ...init, cache:'no-store', credentials:'same-origin', headers }); }
   catch { throw new ApiError('We couldn’t reach your family space. Check your connection and try again.',0); }
+}
+async function apiBody<T>(response:Response):Promise<T> {
   if (response.redirected || !(response.headers.get('content-type') || '').includes('application/json')) throw new ApiError('Your session needs a fresh sign-in. Please sign in again.',401);
   const body = await response.json();
   if(!response.ok) throw new ApiError(typeof body==='object' && body!==null && 'error' in body && typeof body.error==='string' ? body.error : 'Something went wrong. Please try again.',response.status);
   return body as T;
 }
+export async function api<T>(path: string, init?: RequestInit): Promise<T> { return apiBody<T>(await apiResponse(path,init)); }
 type FamilyContext = Bootstrap & {
   authenticated: boolean; loading: boolean; error: string | null; errorStatus: number | null;
   addRecord<K extends RecordKind>(kind: K, data: RecordDataMap[K]): Promise<FamilyRecord<K>>;
@@ -34,6 +38,10 @@ export function FamilyProvider({children}:{children:ReactNode}) {
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState<string|null>(null);
   const [errorStatus,setErrorStatus] = useState<number|null>(null);
+  const [,setRefreshRevision] = useState(0);
+  // A validator is useful only while this provider holds its complete server snapshot.
+  // Neither the snapshot nor its validator belongs in browser persistence or HTTP caches.
+  const bootstrapValidator = useRef<{etag:string;snapshot:Bootstrap}|null>(null);
   const demoRef = useRef<Bootstrap|null>(null);
   const requestGeneration = useRef(0);
   const sessionEpoch = useRef(0);
@@ -43,23 +51,41 @@ export function FamilyProvider({children}:{children:ReactNode}) {
   const logoutChannel = useRef<BroadcastChannel|null>(null);
   const clearSession = useCallback(()=>{
     ++requestGeneration.current; ++sessionEpoch.current; activeUserId.current=''; suspended.current=true; demoRef.current=null;
+    bootstrapValidator.current=null;
     setState(empty);setAuthenticated(false);setLoading(false);setError(null);setErrorStatus(401);
   },[]);
   const refresh = useCallback(async()=>{
     if(suspended.current) return;
     if(demoRef.current) { setState(visibleDemo(demoRef.current)); return; }
     const generation=++requestGeneration.current;
+    const epoch=sessionEpoch.current;
+    const validator=bootstrapValidator.current;
+    const isCurrent=()=>mounted.current && generation===requestGeneration.current && epoch===sessionEpoch.current && !demoRef.current && !suspended.current;
     try {
-      const result=await api<Bootstrap>('/api/bootstrap');
-      if(!mounted.current || generation!==requestGeneration.current || demoRef.current) return;
+      let response=await apiResponse('/api/bootstrap',validator?{headers:{'If-None-Match':validator.etag}}:undefined);
+      if(!isCurrent()) return;
+      if(response.status===304 && !response.redirected) {
+        if(validator && bootstrapValidator.current===validator && activeUserId.current && activeUserId.current===validator.snapshot.user.id && response.headers.get('etag')===validator.etag) {
+          // Date-dependent screens still advance at midnight, without replacing records.
+          setRefreshRevision(revision=>revision+1);setError(null);setErrorStatus(null);return;
+        }
+        bootstrapValidator.current=null;
+        response=await apiResponse('/api/bootstrap');
+        if(!isCurrent()) return;
+        if(response.status===304 && !response.redirected) throw new ApiError('We couldn’t verify your family space. Please refresh and try again.',0);
+      }
+      const result=await apiBody<Bootstrap>(response);
+      if(!isCurrent()) return;
       if(activeUserId.current!==result.user.id) {++sessionEpoch.current;activeUserId.current=result.user.id;}
+      const etag=response.headers.get('etag');
+      bootstrapValidator.current=etag && /^W\/"hearth-[a-f0-9]{64}"$/.test(etag)?{etag,snapshot:result}:null;
       setState(result);setAuthenticated(true);setError(null);setErrorStatus(null);
     } catch(e) {
-      if(!mounted.current || generation!==requestGeneration.current || demoRef.current) return;
+      if(!isCurrent()) return;
       const failure=e instanceof Error ? e.message : 'Unable to load your family space.';
       const status=e instanceof ApiError?e.status:0;
       setError(failure);setErrorStatus(status);
-      if(status===401 || status===403 || status===503) {++sessionEpoch.current;activeUserId.current='';setState(empty);setAuthenticated(false);}
+      if(status===401 || status===403 || status===503) {bootstrapValidator.current=null;++sessionEpoch.current;activeUserId.current='';setState(empty);setAuthenticated(false);}
       throw e;
     } finally { if(mounted.current && generation===requestGeneration.current) setLoading(false); }
   },[]);
@@ -73,11 +99,11 @@ export function FamilyProvider({children}:{children:ReactNode}) {
     logoutChannel.current=channel;
     if(channel) channel.onmessage=event=>{if(event.data==='logout') clearSession();};
     document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);window.addEventListener('pagehide',onHide);window.addEventListener('pageshow',onShow);
-    return ()=>{mounted.current=false;clearInterval(interval);channel?.close();logoutChannel.current=null;document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);window.removeEventListener('pagehide',onHide);window.removeEventListener('pageshow',onShow);};
+    return ()=>{mounted.current=false;bootstrapValidator.current=null;++requestGeneration.current;++sessionEpoch.current;clearInterval(interval);channel?.close();logoutChannel.current=null;document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);window.removeEventListener('pagehide',onHide);window.removeEventListener('pageshow',onShow);};
   },[refresh,clearSession]);
-  function displayDemo(next:Bootstrap) {if(activeUserId.current!==next.user.id) {++sessionEpoch.current;activeUserId.current=next.user.id;} demoRef.current=next;setState(visibleDemo(next));setAuthenticated(true);setLoading(false);setError(null);setErrorStatus(null); }
+  function displayDemo(next:Bootstrap) {bootstrapValidator.current=null;if(activeUserId.current!==next.user.id) {++sessionEpoch.current;activeUserId.current=next.user.id;} demoRef.current=next;setState(visibleDemo(next));setAuthenticated(true);setLoading(false);setError(null);setErrorStatus(null); }
   function enterDemo() { ++requestGeneration.current;++sessionEpoch.current;suspended.current=false;displayDemo(createDemo()); }
-  function leaveDemo() {++requestGeneration.current;++sessionEpoch.current;activeUserId.current='';suspended.current=false;demoRef.current=null;setState(empty);setAuthenticated(false);setLoading(true);void refresh().catch(()=>undefined);}
+  function leaveDemo() {bootstrapValidator.current=null;++requestGeneration.current;++sessionEpoch.current;activeUserId.current='';suspended.current=false;demoRef.current=null;setState(empty);setAuthenticated(false);setLoading(true);void refresh().catch(()=>undefined);}
   function signOut() {logoutChannel.current?.postMessage('logout');flushSync(clearSession);window.location.assign('/cdn-cgi/access/logout');}
   function switchDemoUser(id:string) {const current=demoRef.current;const user=demoMembers.find(u=>u.id===id);if(current&&user) displayDemo({...current,user});}
   function assertDemoAccess(kind:RecordKind, record?:FamilyRecord) {
@@ -91,6 +117,7 @@ export function FamilyProvider({children}:{children:ReactNode}) {
     try {
       const result=await api<T>(path,init);
       if(epoch!==sessionEpoch.current || suspended.current || !mounted.current) throw new ApiError('Your session changed. Refresh before making another change.',401);
+      bootstrapValidator.current=null;
       setState(current=>epoch===sessionEpoch.current?apply(current,result):current);
       await refresh().catch(()=>undefined);return result;
     }

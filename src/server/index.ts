@@ -11,6 +11,7 @@ import type { Env, Variables } from './env';
 import { consumeLimit, createRecord, deleteRecord, getRecord, readFamilySnapshot, requireModule, requireOwnership, updateRecord } from './db';
 import { createSchema, deleteSchema, importSchema, moduleSchema, parseInput, readJson, updateSchema, validateData } from './validation';
 import { importRecipe, RecipeImportError } from './recipe-import';
+import { matchesSnapshot, snapshotTag } from './snapshot';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -49,7 +50,16 @@ async function bootstrap(c: Context<{ Bindings: Env; Variables: Variables }>) {
   return { user, members: family.members, modules, records, capacity, timezone: family.timezone, questionPair: family.questionPair };
 }
 
-app.get('/api/bootstrap', async c => c.json(await bootstrap(c)));
+app.get('/api/bootstrap', async c => {
+  // Authenticate and apply visibility on every refresh, including conditional ones.
+  // Hash only the exact member-visible representation so hidden activity does not
+  // create an extra change signal beyond the shared coarse capacity bucket.
+  const json = JSON.stringify(await bootstrap(c));
+  const tag = await snapshotTag(json);
+  c.header('ETag', tag);
+  if (matchesSnapshot(c.req.header('If-None-Match'), tag)) return c.body(null, 304);
+  return c.body(json, 200, { 'Content-Type': 'application/json; charset=UTF-8' });
+});
 
 async function validateRelations(db: D1Database, kind: RecordKind, data: RecordDataMap[RecordKind], user: User, members: User[], timezone: string): Promise<void> {
   if (['mood', 'habitLog', 'answer'].includes(kind) && (data as RecordDataMap['mood']).date > todayInTimezone(timezone)) throw new ApiError(400, 'Choose today or a past date in your family timezone.');

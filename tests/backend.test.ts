@@ -8,6 +8,8 @@ import type { Answer, Bootstrap, FamilyRecord, User } from '../src/shared/types'
 import { questionForDate } from '../src/shared/questions';
 import { consumeLimit, createRecord, getRecord, readFamilySnapshot, updateRecord } from '../src/server/db';
 import { validateData } from '../src/server/validation';
+import { gzipSync } from 'node:zlib';
+import { scalingRecords } from './fixtures/scaling';
 
 /** Real SQLite executes the production SQL; this adapter only models D1's result shape. */
 function database() {
@@ -263,6 +265,141 @@ describe('coarse family capacity', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'Family storage is not configured.' });
   });
+});
+
+describe('conditional member-visible bootstrap', () => {
+  async function tag(user?: string) {
+    const response = await request('/api/bootstrap', { user });
+    expect(response.status).toBe(200);
+    const value = response.headers.get('ETag');
+    expect(value).toMatch(/^W\/"hearth-[a-f0-9]{64}"$/);
+    return value!;
+  }
+
+  it('returns bodyless no-store responses only for matching validators and keeps exports complete', async () => {
+    await create('task', task);
+    const validator = await tag();
+    for (const header of [validator, validator.slice(2), `"other", ${validator}`, '*']) {
+      const response = await request('/api/bootstrap', { headers: { 'If-None-Match': header } });
+      expect(response.status).toBe(304);
+      expect(await response.text()).toBe('');
+      expect(response.headers.get('ETag')).toBe(validator);
+      expect(response.headers.get('Cache-Control')).toBe('no-store, private');
+      expect(response.headers.get('Vary')).toContain('Cookie');
+    }
+    for (const header of ['"other"', 'garbage', validator.slice(0, -1)]) {
+      const response = await request('/api/bootstrap', { headers: { 'If-None-Match': header } });
+      expect(response.status).toBe(200);
+      expect((await response.json() as Bootstrap).records).toHaveLength(1);
+    }
+    const exported = await request('/api/export', { headers: { 'If-None-Match': validator } });
+    expect(exported.status).toBe(200);
+    expect((await exported.json() as Bootstrap).records).toHaveLength(1);
+  });
+
+  it('invalidates on visible create, edit, deletion and module changes', async () => {
+    let validator = await tag();
+    async function changed() {
+      const response = await request('/api/bootstrap', { headers: { 'If-None-Match': validator } });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('ETag')).not.toBe(validator);
+      validator = response.headers.get('ETag')!;
+    }
+    const record = await create('task', task);
+    await changed();
+    expect((await request(`/api/records/${record.id}`, { method: 'PATCH', body: { version: 1, data: { ...task, done: true } } })).status).toBe(200);
+    await changed();
+    expect((await request('/api/modules/tasks', { method: 'PATCH', body: { enabled: false } })).status).toBe(200);
+    await changed();
+    expect((await request('/api/modules/tasks', { method: 'PATCH', body: { enabled: true } })).status).toBe(200);
+    await changed();
+    expect((await request(`/api/records/${record.id}`, { method: 'DELETE', body: { version: 2 } })).status).toBe(200);
+    await changed();
+  });
+
+  it('does not expose hidden activity through validators and binds them to the current viewer', async () => {
+    const validator = await tag();
+    await create('mood', { date: '2026-01-01', score: 2, note: 'Not visible to Alex', shared: false }, members[1].email);
+    await create('answer', answerData(), members[1].email);
+    expect(await tag()).toBe(validator);
+    const sam = await request('/api/bootstrap', { user: members[1].email, headers: { 'If-None-Match': validator } });
+    expect(sam.status).toBe(200);
+    expect((await sam.json() as Bootstrap).records).toHaveLength(2);
+    expect(sam.headers.get('ETag')).not.toBe(validator);
+    await request('/api/modules/notes', { method: 'PATCH', body: { enabled: false } });
+    const paused = await tag();
+    await seedNotes(5);
+    expect(await tag()).toBe(paused);
+    // Only the intentionally shared capacity bucket may signal hidden growth.
+    await seedNotes(7993, 'hidden-growth');
+    const warning = await request('/api/bootstrap', { headers: { 'If-None-Match': paused } });
+    expect(warning.status).toBe(200);
+    expect(await warning.json()).toMatchObject({ capacity: 'near-limit', records: [] });
+  });
+
+  it('revalidates question reveal, withdrawal and configuration-dependent audiences', async () => {
+    const other = await create('answer', answerData(), members[1].email);
+    const waiting = await tag();
+    const own = await create('answer', answerData());
+    const revealed = await request('/api/bootstrap', { headers: { 'If-None-Match': waiting } });
+    expect(revealed.status).toBe(200);
+    expect((await revealed.json() as Bootstrap).records.map(record => record.id).sort()).toEqual([own.id, other.id].sort());
+    const validator = revealed.headers.get('ETag')!;
+    const unpaired = await request('/api/bootstrap', { headers: { 'If-None-Match': validator }, configuration: { FAMILY_QUESTION_PAIR: 'null' } });
+    expect(unpaired.status).toBe(200);
+    expect((await unpaired.json() as Bootstrap).records.map(record => record.id)).toEqual([own.id]);
+    expect((await request(`/api/records/${own.id}`, { method: 'DELETE', body: { version: 1 } })).status).toBe(200);
+    const withdrawn = await request('/api/bootstrap', { headers: { 'If-None-Match': validator } });
+    expect(withdrawn.status).toBe(200);
+    expect((await withdrawn.json() as Bootstrap).records).toEqual([]);
+  });
+
+  it('includes family configuration and still checks authentication before returning 304', async () => {
+    const validator = await tag();
+    const headers = { 'If-None-Match': validator };
+    for (const configuration of [
+      { FAMILY_TIMEZONE: 'Europe/London' },
+      { FAMILY_MEMBERS: JSON.stringify(members.map(member => ({ ...member, name: member.name + ' Updated' }))) },
+    ]) {
+      expect((await request('/api/bootstrap', { headers, configuration })).status).toBe(200);
+    }
+    expect((await request('/api/bootstrap', { headers, user: 'outsider@example.com' })).status).toBe(403);
+    expect((await request('/api/bootstrap', { headers, url: 'https://hearth.example', configuration: { APP_ORIGIN: 'https://hearth.example', ACCESS_TEAM_DOMAIN: 'hearth.cloudflareaccess.com', ACCESS_AUD: 'test-aud' } })).status).toBe(401);
+    expect((await request('/api/bootstrap', { headers, configuration: { FAMILY_MEMBERS: undefined } })).status).toBe(503);
+    expect((await request('/api/bootstrap', { headers, configuration: { FAMILY_MEMBERS: JSON.stringify([members[1], lee]) } })).status).toBe(403);
+  });
+
+  it.each([{ years: 2, days: 730, habits: 4, count: 6616 }, { years: 5, days: 1825, habits: 1, count: 9898 }])('bounds unchanged refresh bodies for a $years-year family fixture', async ({ years, days, habits, count }) => {
+    const rows = scalingRecords(days, habits);
+    expect(rows).toHaveLength(count);
+    for (const record of rows) validateData(record.kind, record.data);
+    await env.DB.batch(rows.map(record => env.DB.prepare('INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, 1)')
+      .bind(record.id, record.kind, record.ownerId, JSON.stringify(record.data), record.createdAt, record.updatedAt)));
+    const usage = await env.DB.prepare('SELECT data_bytes, record_count FROM family_storage WHERE id = 1').first<{ data_bytes: number; record_count: number }>();
+    expect(usage!.data_bytes).toBeLessThan(8_388_608);
+    expect(usage!.record_count).toBe(count);
+    const full = await request('/api/bootstrap');
+    expect(full.status).toBe(200);
+    const json = await full.text();
+    expect((JSON.parse(json) as Bootstrap).records).toHaveLength(count);
+    const validator = full.headers.get('ETag')!;
+    const durations: number[] = [];
+    const queries = vi.spyOn(env.DB, 'prepare');
+    for (let run = 0; run < 3; run++) {
+      const start = performance.now();
+      const response = await request('/api/bootstrap', { headers: { 'If-None-Match': validator } });
+      expect(response.status).toBe(304);
+      expect((await response.arrayBuffer()).byteLength).toBe(0);
+      durations.push(performance.now() - start);
+    }
+    // Conditional transfer does not pretend to eliminate whole-snapshot reads.
+    expect(queries.mock.calls.filter(([sql]) => sql === 'SELECT * FROM records ORDER BY created_at DESC, id DESC')).toHaveLength(3);
+    if (process.env.HEARTH_MEASURE_REFRESH) console.log('Refresh fixture measurement', { years, count, dataBytes: usage!.data_bytes, fullBodyBytes: Buffer.byteLength(json), syntheticGzipBytes: gzipSync(json).byteLength, unchangedBodyBytes: 0, conditionalMedianMs: Math.round(durations.sort((a, b) => a - b)[1]) });
+    const changed = await create('task', { title: 'A newly visible item', done: false });
+    const updated = await request('/api/bootstrap', { headers: { 'If-None-Match': validator } });
+    expect(updated.status).toBe(200);
+    expect((await updated.json() as Bootstrap).records.some(record => record.id === changed.id)).toBe(true);
+  }, 30_000);
 });
 
 describe('private data, family visibility, and module boundaries', () => {

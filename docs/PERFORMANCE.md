@@ -58,4 +58,46 @@ Question history initially rendered 20 cards, habit calendars at most 42 date ce
 
 The Today dashboard remained bounded to 531 document elements. Its complete cold-load timings across the controlled before/after runs ranged from **796–1,707 ms**; this work makes no cold-start improvement claim.
 
-No real mobile hardware, network latency, Cloudflare edge execution, D1 query latency, or AI inference was measured. Repeated fictional text compresses unusually well, so the gzip transfer sizes are not a production bandwidth estimate. Client pagination does not reduce the complete bootstrap payload or the server’s full-snapshot query. The current quota remains necessary; server pagination, archival, and refresh payload reduction should be evaluated before increasing it.
+No real mobile hardware, network latency, Cloudflare edge execution, D1 query latency, or AI inference was measured. Repeated fictional text compresses unusually well, so the gzip transfer sizes are not a production bandwidth estimate. Client pagination does not reduce the complete bootstrap payload or the server’s full-snapshot query. These limits prompted the scaling evaluation below; the existing quota remains necessary.
+
+## Scaling evaluation and conditional refresh — 2026-10-08
+
+Decision: keep the 10,000-record / 8,388,608-byte ceilings. Implement conditional refresh first; require domain pagination and new query/export measurements before considering a higher ceiling. Reversible archival is a separate product capability, not a way to silently discard older family data.
+
+The visible app refreshes every 30 seconds and on visibility/online events. Previously each successful refresh transferred and parsed the full visible Bootstrap and replaced the records array, even when nothing changed. The Worker now hashes the exact authenticated, visibility-filtered JSON and returns a weak ETag. A matching conditional request receives an empty `304` with the existing private/no-store policy. Changed snapshots still return the full JSON. The client retains its baseline only in memory, bypasses HTTP caches, and invalidates it on confirmed writes and session/demo transitions. Date-dependent screens still rerender after `304`, so family midnight advances without replacing the records array.
+
+### Reproducible response-body measurements
+
+These new deterministic fixtures have the same collection sizes as the earlier two/five-year scenarios, with different synthetic text. They are defined in `tests/fixtures/scaling.ts`; every record passes the production validator and is inserted into real in-memory SQLite with the production migrations and budget triggers. The production Hono routes execute through a D1-shaped adapter. Both partners' moods are deliberately shared and their answer pairs complete, so all fixture records are visible.
+
+| Fixture | Records | Serialized record-data bytes | Full JSON body bytes | Synthetic gzip body bytes | Unchanged conditional body bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Two years | 6,616 | 2,207,191 | 3,211,871 | 110,068 | 0 |
+| Five years | 9,898 | 3,007,842 | 4,521,699 | 165,936 | 0 |
+
+Each scenario verifies three successive empty responses, then a visible write returning complete updated JSON. Tests also prove that each unchanged refresh still performs the full records query. The savings above are response-body bytes only: requests, headers, authentication, rate-limit writes and all snapshot work remain. Gzip sizes are computed locally over repetitive fixture text; they are not observed network traffic or a realistic compression forecast.
+
+On this shared host, the median of three conditional route calls was 337 ms for the two-year fixture and 664 ms for five years during a concurrent build. These are local Node/SQLite measurements, including decode, visibility, serialization and hashing; they establish neither Worker latency nor a speedup over the previous implementation. Cold loads and changed refreshes still pay the full payload cost. Hashing also allocates a UTF-8 buffer and consumes CPU; no Worker memory reduction is claimed.
+
+Reproduce the data-size and empty-body assertions, optionally printing measurements:
+
+```sh
+HEARTH_MEASURE_REFRESH=1 npm test -- tests/backend.test.ts --reporter=verbose --silent=false
+```
+
+### Options evaluated
+
+| Option | Benefit | Required behavior and decision |
+| --- | --- | --- |
+| Conditional visible snapshot | Removes unchanged response bodies and JSON parsing; retains the records array for memoized views. | Implemented. Recompute authorization and visibility on every request; never expose a global change counter. Does not bound database reads or changed responses. |
+| Server pagination | Bounds domain queries, payloads and client collections. | Next scaling prerequisite. Introduce explicit paged-domain APIs plus bootstrap summaries; do not quietly make `Bootstrap.records` incomplete. |
+| Reversible archival | Separates active work from retained history. | Defer until archive browse/search/restore and domain semantics are designed. A hidden flag still consumes today's total quota. |
+| Delta synchronization | Can reduce changed refresh payloads and repeated reads. | Defer until measured need justifies transactional change logs, tombstones, audience-bound cursors, retention/reset rules and revocation removals. Timestamp filtering alone is insufficient. |
+
+Mood history and recipes are the first pagination candidates. Moods need authorized mine/shared filters, duplicate-date detection and totals. Recipes need server search across title/description/tags/ingredients, tag aggregates and full detail/edit/print records. Both need deterministic keyset ordering with a unique tie-breaker, suitable indexes, explicit cursor behavior under concurrent edits/deletes, and cursors bound to viewer/filter/module scope. Apply visibility before limits and counts. In particular, question visibility must evaluate the complete original answer pair before paging; limiting raw rows first changes the audience rules.
+
+The current client assumes complete collections beyond those lists. The dashboard derives pending totals, favorite recipes, latest notes, upcoming events and today's habit completion from Bootstrap. Streaks use all historical logs for current/longest/total summaries. Profiles use the latest released answer per question across history. Tasks, notes, events and goals also calculate searches, counts and ordering locally. A pagination implementation must supply equivalent authorized summaries and keep drafts/detail records separate from page state, including loading/error/end states, page invalidation after writes, session clearing and privacy revocation.
+
+Archival should begin, if wanted, with explicit archiving of completed tasks/goals or past notes/events. Restore must preserve identity, ownership and conflict behavior; archived records need discoverable browsing, search and export. Avoid blanket age-based archival of habit logs or answer pairs: their history affects streaks, reveal rules and profile preferences. Moving archived data into another store requires atomic moves/restores, privacy enforcement, total-storage accounting and verified backup/restore of both stores. Pausing modules and exporting do not reclaim capacity. A member's export is only their visible enabled-module subset, not a complete family backup; export-and-delete is destructive cleanup, not reversible archival.
+
+Before raising limits, measure cold and changed loads at the proposed ceiling with representative data, Worker CPU/memory and D1 query cost, and verify bounded queries/exports, complete summaries/search/history, concurrent page mutations and audience revocation. Conditional transfer alone does not meet those requirements. Live Cloudflare measurements and isolated backup restore remain external prerequisites.
