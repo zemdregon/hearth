@@ -45,8 +45,8 @@ app.use('/api/*', async (c, next) => {
 async function bootstrap(c: Context<{ Bindings: Env; Variables: Variables }>) {
   const family = c.get('family');
   const user = c.get('user');
-  const { modules, records } = await readFamilySnapshot(c.env.DB, user, family.members, family.questionPair);
-  return { user, members: family.members, modules, records, timezone: family.timezone, questionPair: family.questionPair };
+  const { modules, records, capacity } = await readFamilySnapshot(c.env.DB, user, family.members, family.questionPair);
+  return { user, members: family.members, modules, records, capacity, timezone: family.timezone, questionPair: family.questionPair };
 }
 
 app.get('/api/bootstrap', async c => c.json(await bootstrap(c)));

@@ -18,7 +18,8 @@ export type RecordDataMap = { recipe: Recipe; task: Task; note: Note; habit: Hab
 export type RecordKind = keyof RecordDataMap;
 export type FamilyRecord<K extends RecordKind = RecordKind> = K extends RecordKind ? { id: string; kind: K; ownerId: string; data: RecordDataMap[K]; createdAt: string; updatedAt: string; version: number } : never;
 export type ModuleConfig = { id: ModuleId; enabled: boolean };
-export type Bootstrap = { user: User; members: User[]; modules: ModuleConfig[]; records: FamilyRecord[]; timezone: string; questionPair: QuestionPair | null; demo?: boolean };
+export type FamilyCapacity = 'available' | 'near-limit' | 'full';
+export type Bootstrap = { user: User; members: User[]; modules: ModuleConfig[]; records: FamilyRecord[]; timezone: string; questionPair: QuestionPair | null; capacity?: FamilyCapacity; demo?: boolean };
 export type FamilyExport = Bootstrap & { schemaVersion: number; exportedAt: string; scope: string };
 export type RecipeImportRequest = { mode: 'url' | 'text' | 'image'; value: string; mimeType?: string };
 export type RecipeImportResponse = { recipe: Recipe; warnings: string[] };

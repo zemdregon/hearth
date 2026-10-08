@@ -3,6 +3,7 @@ import { kindModule, moduleIds } from '../shared/types';
 import { canViewAnswer, sameQuestionPair } from '../shared/question-pairing';
 import { isValidDate, todayInTimezone } from '../shared/calendar';
 import { questionForDate } from '../shared/questions';
+import { familyCapacity } from '../shared/capacity';
 
 export const demoMembers: User[] = [
   { id: 'alex', name: 'Alex', email: 'alex@example.test', role: 'admin', color: '#557461' },
@@ -34,7 +35,9 @@ export function createDemo(): Bootstrap {
 
 export function visibleDemo(source: Bootstrap): Bootstrap {
   const enabled = new Set(source.modules.filter(m=>m.enabled).map(m=>m.id));
-  return {...source, records:source.records.filter(r=>{
+  const encoder = new TextEncoder();
+  const dataBytes = source.records.reduce((total, record) => total + encoder.encode(JSON.stringify(record.data)).byteLength, 0);
+  return {...source, capacity: familyCapacity(dataBytes, source.records.length), records:source.records.filter(r=>{
     if(!enabled.has(kindModule[r.kind])) return false;
     if(r.kind==='mood') return r.ownerId===source.user.id || r.data.shared;
     if(r.kind==='answer') return canViewAnswer(r,source.records,source.user.id,source.questionPair,source.members);

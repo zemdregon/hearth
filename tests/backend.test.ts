@@ -6,7 +6,7 @@ import app from '../src/server/index';
 import type { Env } from '../src/server/env';
 import type { Answer, Bootstrap, FamilyRecord, User } from '../src/shared/types';
 import { questionForDate } from '../src/shared/questions';
-import { consumeLimit, createRecord, getRecord, updateRecord } from '../src/server/db';
+import { consumeLimit, createRecord, getRecord, readFamilySnapshot, updateRecord } from '../src/server/db';
 import { validateData } from '../src/server/validation';
 
 /** Real SQLite executes the production SQL; this adapter only models D1's result shape. */
@@ -65,6 +65,12 @@ async function create(kind: string, data: unknown, user?: string): Promise<Famil
   return response.json() as Promise<FamilyRecord>;
 }
 async function records(user?: string) { return ((await (await request('/api/bootstrap', { user })).json()) as Bootstrap).records; }
+async function seedNotes(count: number, prefix = 'note') {
+  await env.DB.prepare(`WITH RECURSIVE sequence(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM sequence WHERE n < ?)
+    INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version)
+    SELECT ? || n, 'note', 'alex', ?, '2026-01-01T12:00:00.000Z', '2026-01-01T12:00:00.000Z', 1 FROM sequence`)
+    .bind(count, prefix, JSON.stringify({ date: '2026-01-01', text: 'A preserved note' })).run();
+}
 async function legacyAnswer(user = members[0], changes: Partial<Answer> = {}) {
   const data = answerData('2026-01-01', { participantIds: undefined, ...changes });
   const id = crypto.randomUUID();
@@ -172,7 +178,7 @@ describe('persistent records, validation, and optimistic concurrency', () => {
   });
 
   it('enforces the aggregate byte budget atomically and releases capacity on deletion', async () => {
-    const note = { date: '2026-01-01', text: '🌳'.repeat(2400) };
+    const note = { date: '2026-01-01', text: '🌳'.repeat(2399) };
     validateData('note', note);
     const size = new TextEncoder().encode(JSON.stringify(note)).byteLength;
     const maximum = Math.floor(8_388_608 / size);
@@ -181,19 +187,22 @@ describe('persistent records, validation, and optimistic concurrency', () => {
     await expect(createRecord(env.DB, members[0], 'note', note)).rejects.toMatchObject({ status: 409, message: expect.stringContaining('storage is full') });
     const stored = await env.DB.prepare('SELECT data_bytes, record_count FROM family_storage').first<{ data_bytes: number; record_count: number }>();
     expect(stored).toMatchObject({ data_bytes: maximum * size, record_count: maximum });
+    expect((await readFamilySnapshot(env.DB, members[0], members, ['alex', 'sam'])).capacity).toBe('near-limit');
     const enlarged = { ...note, text: '🌳'.repeat(2499) };
     validateData('note', enlarged);
     // Fill the remaining room so an otherwise valid update cannot cross the aggregate limit.
     const remainder = 8_388_608 - stored!.data_bytes;
     const fillerBytes = remainder - JSON.stringify({ ...note, text: '' }).length;
-    if (fillerBytes > 0) {
-      const filler = { ...note, text: '🌳'.repeat(Math.floor(fillerBytes / 4)) + 'x'.repeat(fillerBytes % 4) };
-      validateData('note', filler);
-      await createRecord(env.DB, members[0], 'note', filler);
-    }
+    expect(fillerBytes).toBeGreaterThan(0);
+    const filler = { ...note, text: '🌳'.repeat(Math.floor(fillerBytes / 4)) + 'x'.repeat(fillerBytes % 4) };
+    validateData('note', filler);
+    await createRecord(env.DB, members[0], 'note', filler);
+    expect(await env.DB.prepare('SELECT data_bytes FROM family_storage WHERE id = 1').first()).toEqual({ data_bytes: 8_388_608 });
+    expect((await readFamilySnapshot(env.DB, members[0], members, ['alex', 'sam'])).capacity).toBe('full');
     await expect(updateRecord(env.DB, last!, enlarged, 1)).rejects.toMatchObject({ status: 409 });
     expect((await getRecord(env.DB, last!.id)).version).toBe(1);
     await request(`/api/records/${last!.id}`, { method: 'DELETE', body: { version: 1 } });
+    expect((await readFamilySnapshot(env.DB, members[0], members, ['alex', 'sam'])).capacity).toBe('near-limit');
     await expect(createRecord(env.DB, members[0], 'note', note)).resolves.toMatchObject({ version: 1 });
   });
 
@@ -203,6 +212,56 @@ describe('persistent records, validation, and optimistic concurrency', () => {
     await expect(createRecord(env.DB, members[0], 'task', task)).rejects.toMatchObject({ status: 409 });
     await expect(updateRecord(env.DB, item, { ...task, done: true }, 1)).rejects.toMatchObject({ status: 409 });
     expect((await getRecord(env.DB, item.id)).version).toBe(1);
+  });
+});
+
+describe('coarse family capacity', () => {
+  it('changes at the item warning and full boundaries, and releases capacity after deletion', async () => {
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('available');
+    await seedNotes(7999);
+    expect((await request('/api/modules/notes', { method: 'PATCH', body: { enabled: false } })).status).toBe(200);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('available');
+    const warningItem = await create('task', task);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('near-limit');
+    expect((await request(`/api/records/${warningItem.id}`, { method: 'DELETE', body: { version: 1 } })).status).toBe(200);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('available');
+
+    await seedNotes(2000, 'more');
+    const finalItem = await create('task', task);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('full');
+    expect((await request('/api/records', { method: 'POST', body: { kind: 'task', data: task } })).status).toBe(409);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('full');
+    expect((await request(`/api/records/${finalItem.id}`, { method: 'DELETE', body: { version: 1 } })).status).toBe(200);
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('near-limit');
+  });
+
+  it('includes disabled and private records without disclosing hidden details or exact usage', async () => {
+    await seedNotes(7998);
+    expect((await request('/api/modules/notes', { method: 'PATCH', body: { enabled: false } })).status).toBe(200);
+    const mood = await create('mood', { date: '2026-01-01', score: 2, note: 'Private thoughts', shared: false }, 'sam@example.com');
+    expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('available');
+    const answer = await create('answer', answerData(), 'sam@example.com');
+    for (const path of ['/api/bootstrap', '/api/export']) {
+      const response = await request(path);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Cache-Control')).toContain('no-store');
+      const snapshot = await response.json() as Bootstrap;
+      expect(snapshot.capacity).toBe('near-limit');
+      expect(snapshot.records).toEqual([]);
+      const keys = ['user', 'members', 'modules', 'records', 'capacity', 'timezone', 'questionPair'];
+      if (path === '/api/export') keys.push('schemaVersion', 'exportedAt', 'scope');
+      expect(Object.keys(snapshot).sort()).toEqual(keys.sort());
+      const ownerSnapshot = await (await request(path, { user: 'sam@example.com' })).json() as Bootstrap;
+      expect(ownerSnapshot.capacity).toBe(snapshot.capacity);
+      expect(ownerSnapshot.records.map(record => record.id).sort()).toEqual([mood.id, answer.id].sort());
+    }
+  });
+
+  it('does not report spare capacity when the storage counter is missing', async () => {
+    await env.DB.prepare('DELETE FROM family_storage WHERE id = 1').run();
+    const response = await request('/api/bootstrap');
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Family storage is not configured.' });
   });
 });
 

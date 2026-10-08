@@ -96,7 +96,7 @@ export function FamilyProvider({children}:{children:ReactNode}) {
     }
     catch(e) {if(epoch===sessionEpoch.current && e instanceof ApiError && [401,403,409].includes(e.status)) await refresh().catch(()=>undefined);throw e;}
   }
-  function storeRecord<K extends RecordKind>(current:Bootstrap,record:FamilyRecord<K>):Bootstrap {return {...current,records:[...current.records.filter(r=>r.id!==record.id),record]};}
+  function storeRecord<K extends RecordKind>(current:Bootstrap,record:FamilyRecord<K>):Bootstrap {return {...current,capacity:undefined,records:[...current.records.filter(r=>r.id!==record.id),record]};}
   async function addRecord<K extends RecordKind>(kind:K,data:RecordDataMap[K]):Promise<FamilyRecord<K>> {
     if(!demoRef.current) return mutate<FamilyRecord<K>>('/api/records',{method:'POST',body:JSON.stringify({kind,data})},storeRecord);
     assertDemoAccess(kind);
@@ -115,7 +115,7 @@ export function FamilyProvider({children}:{children:ReactNode}) {
     displayDemo({...demoRef.current,records:demoRef.current.records.map(r=>r.id===record.id?next:r)});return next;
   }
   async function deleteRecord(record:FamilyRecord) {
-    if(!demoRef.current) {await mutate(`/api/records/${encodeURIComponent(record.id)}`,{method:'DELETE',body:JSON.stringify({version:record.version})},current=>({...current,records:current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id)&&!(record.kind==='answer'&&r.kind==='answer'&&r.ownerId!==current.user.id&&r.data.date===record.data.date&&r.data.questionId===record.data.questionId&&sameQuestionPair(r.data.participantIds,record.data.participantIds)))}));return;}
+    if(!demoRef.current) {await mutate(`/api/records/${encodeURIComponent(record.id)}`,{method:'DELETE',body:JSON.stringify({version:record.version})},current=>({...current,capacity:undefined,records:current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id)&&!(record.kind==='answer'&&r.kind==='answer'&&r.ownerId!==current.user.id&&r.data.date===record.data.date&&r.data.questionId===record.data.questionId&&sameQuestionPair(r.data.participantIds,record.data.participantIds)))}));return;}
     assertDemoAccess(record.kind,record);displayDemo({...demoRef.current,records:demoRef.current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id))});
   }
   async function setModule(id:ModuleId,enabled:boolean) {

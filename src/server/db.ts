@@ -1,10 +1,12 @@
 import { kindModule, moduleIds } from '../shared/types';
-import type { FamilyRecord, ModuleConfig, ModuleId, QuestionPair, RecordDataMap, RecordKind, User } from '../shared/types';
+import type { FamilyCapacity, FamilyRecord, ModuleConfig, ModuleId, QuestionPair, RecordDataMap, RecordKind, User } from '../shared/types';
 import { canViewAnswer, sameQuestionPair } from '../shared/question-pairing';
+import { familyCapacity } from '../shared/capacity';
 import { ApiError } from './env';
 
 type RecordRow = { id: string; kind: RecordKind; owner_id: string; data: string; created_at: string; updated_at: string; version: number };
 type ModuleRow = { id: ModuleId; enabled: number };
+type StorageRow = { data_bytes: number; record_count: number };
 const decode = (row: RecordRow): FamilyRecord => ({ id: row.id, kind: row.kind, ownerId: row.owner_id, data: JSON.parse(row.data), createdAt: row.created_at, updatedAt: row.updated_at, version: row.version }) as FamilyRecord;
 
 function moduleSettings(rows: ModuleRow[]): ModuleConfig[] {
@@ -41,15 +43,18 @@ export function visibleRecords(records: FamilyRecord[], user: User, members: Use
   });
 }
 
-export async function readFamilySnapshot(db: D1Database, user: User, members: User[], questionPair: QuestionPair | null): Promise<{ modules: ModuleConfig[]; records: FamilyRecord[] }> {
-  // One D1 transaction keeps module visibility and records on the same snapshot.
-  const [settings, rows] = await db.batch([
+export async function readFamilySnapshot(db: D1Database, user: User, members: User[], questionPair: QuestionPair | null): Promise<{ modules: ModuleConfig[]; records: FamilyRecord[]; capacity: FamilyCapacity }> {
+  // Keep visibility, records and whole-family capacity on the same D1 snapshot.
+  const [settings, rows, storage] = await db.batch([
     db.prepare('SELECT id, enabled FROM modules'),
     db.prepare('SELECT * FROM records ORDER BY created_at DESC, id DESC'),
+    db.prepare('SELECT data_bytes, record_count FROM family_storage WHERE id = 1'),
   ]);
+  const usage = (storage.results as StorageRow[])[0];
+  if (!usage) throw new ApiError(503, 'Family storage is not configured.');
   const modules = moduleSettings(settings.results as ModuleRow[]);
   const records = visibleRecords((rows.results as RecordRow[]).map(decode), user, members, modules, questionPair);
-  return { modules, records };
+  return { modules, records, capacity: familyCapacity(usage.data_bytes, usage.record_count) };
 }
 
 export function requireOwnership(record: FamilyRecord, user: User): void {
