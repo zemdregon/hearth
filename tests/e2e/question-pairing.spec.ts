@@ -5,7 +5,7 @@ import { addDays, todayInTimezone } from '../../src/shared/calendar';
 import { questionForDate } from '../../src/shared/questions';
 import type { Answer, Bootstrap, FamilyRecord, QuestionPair, User } from '../../src/shared/types';
 
-const lee: User = { id: 'lee', name: 'Lee', email: 'lee@example.test', role: 'admin', color: '#426c85' };
+const lee: User = { id: 'lee', name: 'Lee', role: 'admin', color: '#426c85' };
 const today = () => todayInTimezone('UTC');
 function answer(ownerId: string, date: string, data: Partial<Answer> = {}): FamilyRecord<'answer'> {
   return { id: `${ownerId}-${date}`, kind: 'answer', ownerId, version: 1, createdAt: `${date}T12:00:00Z`, updatedAt: `${date}T12:00:00Z`, data: { date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, participantIds: ['alex', 'sam'], ...data } };

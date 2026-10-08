@@ -12,28 +12,30 @@ import { consumeLimit, createRecord, deleteRecord, getRecord, readFamilySnapshot
 import { createSchema, deleteSchema, importSchema, moduleSchema, parseInput, readJson, updateSchema, validateData } from './validation';
 import { importRecipe, RecipeImportError } from './recipe-import';
 import { matchesSnapshot, snapshotTag } from './snapshot';
+import { passkeyRoutes } from './passkeys';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use('*', async (c, next) => {
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
-  c.header('Referrer-Policy', 'same-origin');
+  c.header('Referrer-Policy', c.req.path.startsWith('/api/auth/') ? 'no-referrer' : 'same-origin');
   c.header('X-Frame-Options', 'DENY');
   c.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
   c.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
   if (c.req.path.startsWith('/api/')) {
     c.header('Cache-Control', 'no-store, private');
     c.header('Pragma', 'no-cache');
-    c.header('Vary', 'Cf-Access-Jwt-Assertion, Cookie');
+    c.header('Vary', 'Cookie');
   }
 });
 
 app.get('/api/health', c => c.json({ ok: true, service: 'hearth' }));
+app.route('/api/auth', passkeyRoutes);
 
 app.use('/api/*', async (c, next) => {
-  const family = readConfig(c.env, c.req.url);
-  const user = await authenticate(c.req.raw, c.env, family);
+  const user = await authenticate(c.req.raw, c.env);
+  const family = await readConfig(c.env, c.req.url);
   enforceOrigin(c.req.raw, family);
   if (!c.env.DB) throw new ApiError(503, 'Family storage is not configured.');
   c.set('family', family);

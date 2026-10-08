@@ -14,7 +14,7 @@ export function preflight(environment = process.env) {
   if (result.deployment) {
     try {
       const migrations = readdirSync(resolve(dirname(configPath), result.deployment.migrationsDirectory));
-      if (!['0001_initial.sql', '0002_storage_budget.sql', '0003_passkey_foundation.sql'].every(name => migrations.includes(name))) throw new Error('Missing schema');
+      if (!['0001_initial.sql', '0002_storage_budget.sql', '0003_passkey_foundation.sql', '0004_passkey_runtime.sql', '0005_passkey_browser_sessions.sql'].every(name => migrations.includes(name))) throw new Error('Missing schema');
     } catch { return { problems: ['The DB migrations directory must contain all Hearth schema migrations.'] }; }
   }
   return result;
@@ -25,7 +25,7 @@ export function printPreflight(result) {
     console.error(`Deployment is not ready:\n${result.problems.map(problem => ` • ${problem}`).join('\n')}`);
     return false;
   }
-  console.log('Local deployment configuration checks passed. Cloudflare Access protection and credential permissions still require verification in the intended account.');
+  console.log('Local deployment configuration checks passed. Passkey enrollment, credential permissions and real-device sign-in still require verification in the intended account.');
   return true;
 }
 

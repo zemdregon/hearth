@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { parseFamilyMembers, parseQuestionPair } from '../src/server/config.mjs';
 
 const members = parseFamilyMembers(JSON.stringify([
-  { id: 'sam', name: 'Sam', email: 'sam@example.test', role: 'member', color: '#A96743' },
-  { id: 'alex', name: 'Alex', email: 'alex@example.test', role: 'admin', color: '#38634A' },
-  { id: 'lee', name: 'Lee', email: 'lee@example.test', role: 'member', color: '#555555' },
+  { id: 'sam', name: 'Sam', role: 'member', color: '#A96743' },
+  { id: 'alex', name: 'Alex', role: 'admin', color: '#38634A' },
+  { id: 'lee', name: 'Lee', role: 'member', color: '#555555' },
 ]));
 
 describe('daily question pair configuration', () => {

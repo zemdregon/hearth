@@ -12,7 +12,7 @@ async function openDemo(page: Page, view = 'today') {
 test('authentication gate distinguishes local demo and real family sign-in', async ({ page }) => {
   await page.route('**/api/bootstrap', route => route.fulfill({ status: 503, json: { error: 'Local deployment has not been configured.' } }));
   await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Sign in to your family space' })).toHaveAttribute('href', /\/cdn-cgi\/access\/login\?redirect_url=/);
+  await expect(page.getByRole('button', { name: 'Sign in with a passkey' })).toBeVisible();
   await expect(page.getByText('Local deployment has not been configured.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Home, together.' })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);

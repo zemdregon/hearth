@@ -66,13 +66,13 @@ test('an in-flight export is canceled when the session signs out',async({page})=
   await expect(page.getByRole('button',{name:'Explore the local demo'})).toBeVisible();
 });
 
-test('an expired Access HTML response never becomes a family export',async({page})=>{
+test('an unexpected sign-in HTML response never becomes a family export',async({page})=>{
   const fixture={...createDemo(),demo:false};
   const downloads:string[]=[];
   let expired=false;
   page.on('download',download=>downloads.push(download.suggestedFilename()));
-  await page.route('**/api/bootstrap',route=>expired?route.fulfill({status:401,json:{error:'Sign in through Cloudflare Access.'}}):route.fulfill({json:fixture}));
-  await page.route('**/api/export',route=>{expired=true;return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Cloudflare Access</title>Sign in'});});
+  await page.route('**/api/bootstrap',route=>expired?route.fulfill({status:401,json:{error:'Sign in with a family passkey.'}}):route.fulfill({json:fixture}));
+  await page.route('**/api/export',route=>{expired=true;return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Sign in</title>Sign in'});});
   await page.goto('/#settings');
   await page.getByRole('button',{name:'Export data'}).click();
   await expect(page.getByRole('button',{name:'Explore the local demo'})).toBeVisible();

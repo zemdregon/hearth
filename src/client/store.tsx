@@ -5,8 +5,9 @@ import type { Bootstrap, FamilyExport, FamilyRecord, ModuleConfig, ModuleId, Rec
 import { kindModule } from '../shared/types';
 import { createDemo, demoMembers, prepareDemoAnswer, visibleDemo } from './demo';
 import { sameQuestionPair } from '../shared/question-pairing';
+import { arrivedForEnrollment, cancelPasskeyCeremony, captureArrivalInvitation, createPasskey, verifyPasskey, type PasskeyRequest } from './passkeys';
 
-const anonymous: User = { id: '', name: '', email: '', role: 'member', color: '#557461' };
+const anonymous: User = { id: '', name: '', role: 'member', color: '#557461' };
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
 async function apiResponse(path: string, init?: RequestInit): Promise<Response> {
   const headers=new Headers(init?.headers);
@@ -22,20 +23,26 @@ async function apiBody<T>(response:Response):Promise<T> {
 }
 export async function api<T>(path: string, init?: RequestInit): Promise<T> { return apiBody<T>(await apiResponse(path,init)); }
 type FamilyContext = Bootstrap & {
-  authenticated: boolean; loading: boolean; error: string | null; errorStatus: number | null;
+  authenticated: boolean; loading: boolean; authBusy: boolean; logoutFailed: boolean; enrollmentRevision: number; error: string | null; errorStatus: number | null;
   addRecord<K extends RecordKind>(kind: K, data: RecordDataMap[K]): Promise<FamilyRecord<K>>;
   updateRecord<K extends RecordKind>(record: FamilyRecord<K>, data: RecordDataMap[K]): Promise<FamilyRecord<K>>;
   deleteRecord(record: FamilyRecord): Promise<void>;
   setModule(id: ModuleId, enabled: boolean): Promise<void>;
   exportData(): Promise<FamilyExport>;
   refresh(): Promise<void>; enterDemo(): void; leaveDemo(): void; switchDemoUser(id: string): void; signOut(): void;
+  signIn(): Promise<void>; enroll(token: string, name: string): Promise<void>; registerPasskey(name: string): Promise<void>;
+  accountRequest<T>(path: string, body?: unknown): Promise<T>; revokeAllSessions(): Promise<void>;
+  captureAuthCancellation(): () => void;
 };
 const Context = createContext<FamilyContext | null>(null);
 const empty: Bootstrap = {user:anonymous,members:[],modules:[],records:[],timezone:'UTC',questionPair:null};
 export function FamilyProvider({children}:{children:ReactNode}) {
   const [state,setState] = useState<Bootstrap>(empty);
   const [authenticated,setAuthenticated] = useState(false);
-  const [loading,setLoading] = useState(true);
+  const [loading,setLoading] = useState(!arrivedForEnrollment);
+  const [authBusy,setAuthBusy] = useState(false);
+  const [logoutFailed,setLogoutFailed] = useState(false);
+  const [enrollmentRevision,setEnrollmentRevision] = useState(0);
   const [error,setError] = useState<string|null>(null);
   const [errorStatus,setErrorStatus] = useState<number|null>(null);
   const [,setRefreshRevision] = useState(0);
@@ -47,15 +54,22 @@ export function FamilyProvider({children}:{children:ReactNode}) {
   const sessionEpoch = useRef(0);
   const activeUserId = useRef('');
   const mounted = useRef(true);
-  const suspended = useRef(false);
+  const suspended = useRef(arrivedForEnrollment);
+  const authOperation = useRef<AbortController|null>(null);
   const logoutChannel = useRef<BroadcastChannel|null>(null);
+  const cancelAuthentication=useCallback(()=>{authOperation.current?.abort();authOperation.current=null;cancelPasskeyCeremony();setAuthBusy(false);},[]);
+  const captureAuthCancellation=useCallback(()=>{
+    const operation=authOperation.current;
+    return ()=>{if(operation && authOperation.current===operation) cancelAuthentication();};
+  },[cancelAuthentication]);
   const clearSession = useCallback(()=>{
+    cancelAuthentication();
     ++requestGeneration.current; ++sessionEpoch.current; activeUserId.current=''; suspended.current=true; demoRef.current=null;
     bootstrapValidator.current=null;
     setState(empty);setAuthenticated(false);setLoading(false);setError(null);setErrorStatus(401);
-  },[]);
-  const refresh = useCallback(async()=>{
-    if(suspended.current) return;
+  },[cancelAuthentication]);
+  const refresh = useCallback(async(completeSignIn=false)=>{
+    if(suspended.current || (authOperation.current && !completeSignIn)) return;
     if(demoRef.current) { setState(visibleDemo(demoRef.current)); return; }
     const generation=++requestGeneration.current;
     const epoch=sessionEpoch.current;
@@ -85,26 +99,69 @@ export function FamilyProvider({children}:{children:ReactNode}) {
       const failure=e instanceof Error ? e.message : 'Unable to load your family space.';
       const status=e instanceof ApiError?e.status:0;
       setError(failure);setErrorStatus(status);
-      if(status===401 || status===403 || status===503) {bootstrapValidator.current=null;++sessionEpoch.current;activeUserId.current='';setState(empty);setAuthenticated(false);}
+      if(status===401 || status===403 || status===503) {cancelAuthentication();bootstrapValidator.current=null;++sessionEpoch.current;activeUserId.current='';setState(empty);setAuthenticated(false);}
       throw e;
     } finally { if(mounted.current && generation===requestGeneration.current) setLoading(false); }
   },[]);
   useEffect(()=>{
     mounted.current=true; void refresh().catch(()=>undefined);
-    const onVisible=()=>{if(document.visibilityState==='visible') void refresh().catch(()=>undefined);};
+    const onVisible=()=>{if(document.visibilityState==='visible' && !authOperation.current) void refresh().catch(()=>undefined);};
     const interval=window.setInterval(onVisible,30000);
     const onHide=()=>{flushSync(clearSession);};
+    const onEnrollment=()=>{
+      if(captureArrivalInvitation()) flushSync(()=>{clearSession();setLogoutFailed(false);setEnrollmentRevision(revision=>revision+1);});
+    };
     const onShow=(event:PageTransitionEvent)=>{if(event.persisted) {flushSync(clearSession);suspended.current=false;setLoading(true);void refresh().catch(()=>undefined);}};
     const channel=typeof BroadcastChannel==='function'?new BroadcastChannel('hearth-session'):null;
     logoutChannel.current=channel;
-    if(channel) channel.onmessage=event=>{if(event.data==='logout') clearSession();};
-    document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);window.addEventListener('pagehide',onHide);window.addEventListener('pageshow',onShow);
-    return ()=>{mounted.current=false;bootstrapValidator.current=null;++requestGeneration.current;++sessionEpoch.current;clearInterval(interval);channel?.close();logoutChannel.current=null;document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);window.removeEventListener('pagehide',onHide);window.removeEventListener('pageshow',onShow);};
+    if(channel) channel.onmessage=event=>{if(event.data==='logout') flushSync(clearSession);};
+    document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);window.addEventListener('pagehide',onHide);window.addEventListener('pageshow',onShow);window.addEventListener('hashchange',onEnrollment,true);
+    return ()=>{mounted.current=false;authOperation.current?.abort();authOperation.current=null;cancelPasskeyCeremony();bootstrapValidator.current=null;++requestGeneration.current;++sessionEpoch.current;clearInterval(interval);channel?.close();logoutChannel.current=null;document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);window.removeEventListener('pagehide',onHide);window.removeEventListener('pageshow',onShow);window.removeEventListener('hashchange',onEnrollment,true);};
   },[refresh,clearSession]);
   function displayDemo(next:Bootstrap) {bootstrapValidator.current=null;if(activeUserId.current!==next.user.id) {++sessionEpoch.current;activeUserId.current=next.user.id;} demoRef.current=next;setState(visibleDemo(next));setAuthenticated(true);setLoading(false);setError(null);setErrorStatus(null); }
-  function enterDemo() { ++requestGeneration.current;++sessionEpoch.current;suspended.current=false;displayDemo(createDemo()); }
+  function enterDemo() {cancelAuthentication();++requestGeneration.current;++sessionEpoch.current;suspended.current=false;displayDemo(createDemo());}
   function leaveDemo() {bootstrapValidator.current=null;++requestGeneration.current;++sessionEpoch.current;activeUserId.current='';suspended.current=false;demoRef.current=null;setState(empty);setAuthenticated(false);setLoading(true);void refresh().catch(()=>undefined);}
-  function signOut() {logoutChannel.current?.postMessage('logout');flushSync(clearSession);window.location.assign('/cdn-cgi/access/logout');}
+  function signOut() {
+    logoutChannel.current?.postMessage('logout');flushSync(clearSession);
+    const epoch=sessionEpoch.current;
+    const controller=new AbortController();authOperation.current=controller;setAuthBusy(true);setLogoutFailed(false);
+    void api('/api/auth/logout',{method:'POST',body:'{}',signal:controller.signal}).catch(()=>{
+      if(mounted.current && epoch===sessionEpoch.current) {setLogoutFailed(true);setError('Family information has been cleared from this screen, but server sign-out could not be confirmed. Reconnect and retry sign-out.');setErrorStatus(0);}
+    }).finally(()=>{if(authOperation.current===controller) {authOperation.current=null;if(mounted.current) setAuthBusy(false);}});
+  }
+  async function authTask<T>(work:(request:PasskeyRequest)=>Promise<T>, allowSignedOut=false):Promise<T> {
+    if(authOperation.current) throw new Error('Finish the current passkey request first.');
+    const epoch=sessionEpoch.current;
+    const controller=new AbortController();
+    const assertCurrent=()=>{if(!mounted.current || epoch!==sessionEpoch.current || demoRef.current || controller.signal.aborted || (!allowSignedOut && (suspended.current || !activeUserId.current))) throw new ApiError('Your session changed. Start again to continue.',401);};
+    assertCurrent();++requestGeneration.current;authOperation.current=controller;setAuthBusy(true);
+    const request:PasskeyRequest=Object.assign(async<T,>(path:string,body?:unknown)=>{
+      assertCurrent();
+      const result=await api<T>(path,{method:body===undefined?'GET':'POST',...(body===undefined?{}:{body:JSON.stringify(body)}),signal:controller.signal});
+      assertCurrent();return result;
+    },{assertCurrent});
+    try {return await work(request);}
+    catch(error) {
+      if(!allowSignedOut && !controller.signal.aborted && epoch===sessionEpoch.current && error instanceof ApiError && error.status===401) flushSync(clearSession);
+      throw error;
+    } finally {if(authOperation.current===controller) {authOperation.current=null;if(mounted.current) setAuthBusy(false);}}
+  }
+  async function signIn() {
+    await authTask(async request=>{
+      await verifyPasskey(request,'login');
+      bootstrapValidator.current=null;suspended.current=false;setError(null);setErrorStatus(null);setLogoutFailed(false);setLoading(true);
+      await refresh(true);
+    },true);
+  }
+  async function enroll(token:string,name:string) {await authTask(request=>createPasskey(request,name,token),true);}
+  async function registerPasskey(name:string) {await authTask(async request=>{await verifyPasskey(request,'reauth');await createPasskey(request,name);});}
+  async function accountRequest<T>(path:string,body?:unknown):Promise<T> {
+    return authTask(async request=>{if(body!==undefined) await verifyPasskey(request,'reauth');return request<T>(path,body);});
+  }
+  async function revokeAllSessions() {
+    await accountRequest('/api/auth/sessions/revoke',{});
+    logoutChannel.current?.postMessage('logout');flushSync(clearSession);setLogoutFailed(false);
+  }
   function switchDemoUser(id:string) {const current=demoRef.current;const user=demoMembers.find(u=>u.id===id);if(current&&user) displayDemo({...current,user});}
   function assertDemoAccess(kind:RecordKind, record?:FamilyRecord) {
     const current=demoRef.current!;
@@ -164,7 +221,7 @@ export function FamilyProvider({children}:{children:ReactNode}) {
       throw e;
     }
   }
-  return <Context.Provider value={{...state,authenticated,loading,error,errorStatus,refresh,enterDemo,leaveDemo,switchDemoUser,signOut,addRecord,updateRecord,deleteRecord,setModule,exportData}}>{children}</Context.Provider>;
+  return <Context.Provider value={{...state,authenticated,loading,authBusy,logoutFailed,enrollmentRevision,error,errorStatus,refresh,enterDemo,leaveDemo,switchDemoUser,signOut,signIn,enroll,registerPasskey,accountRequest,revokeAllSessions,captureAuthCancellation,addRecord,updateRecord,deleteRecord,setModule,exportData}}>{children}</Context.Provider>;
 }
 export function useFamily() {const context=useContext(Context);if(!context) throw new Error('FamilyProvider is required.');return context;}
 export function useRecords<K extends RecordKind>(kind:K):FamilyRecord<K>[] {return useFamily().records.filter(r=>r.kind===kind) as FamilyRecord<K>[];}

@@ -1,7 +1,18 @@
-import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { test as base, expect } from '@playwright/test';
 import type { Bootstrap, FamilyRecord } from '../../src/shared/types';
 import { addDays } from '../../src/shared/calendar';
 import { questionForDate } from '../../src/shared/questions';
+
+function fixtureAuth(): {sessions: Record<string,string>} {
+  return JSON.parse(readFileSync(new URL('../../.wrangler/e2e-auth.json', import.meta.url), 'utf8'));
+}
+function memberCookie(id: string) { return `__Host-hearth_session=${fixtureAuth().sessions[id] || ''}`; }
+const test = base.extend({
+  storageState: async ({}, use) => {
+    await use({ cookies: [{ name:'__Host-hearth_session', value:fixtureAuth().sessions.alex, domain:'localhost',path:'/',expires:-1,httpOnly:true,secure:true,sameSite:'Strict' }], origins:[] });
+  },
+});
 
 test('real Worker conditional refresh authenticates and returns no private body when unchanged', async ({ request }) => {
   const initial = await request.get('/api/bootstrap');
@@ -13,12 +24,12 @@ test('real Worker conditional refresh authenticates and returns no private body 
   expect(await response.body()).toHaveLength(0);
   expect(response.headers()['cache-control']).toContain('no-store');
   expect(response.headers().etag).toBe(validator);
-  const other = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator, 'X-Dev-User': 'sam@example.test' } });
+  const other = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator, Cookie: memberCookie('sam') } });
   expect(other.status()).toBe(200);
   expect((await other.json() as Bootstrap).user.id).toBe('sam');
   expect(other.headers().etag).not.toBe(validator);
-  const denied = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator, 'X-Dev-User': 'outsider@example.test' } });
-  expect(denied.status()).toBe(403);
+  const denied = await request.get('/api/bootstrap', { headers: { 'If-None-Match': validator, Cookie: '' } });
+  expect(denied.status()).toBe(401);
 });
 
 test('real browser retains its family view after a Worker 304 response', async ({ page }) => {
@@ -38,7 +49,7 @@ test('real browser retains its family view after a Worker 304 response', async (
 test('real Worker and D1 persist shared edits, enforce conflicts, privacy, and module controls', async ({ request })=>{
   const origin='http://localhost:5173';
   const headers={ Origin:origin, 'Content-Type':'application/json' };
-  const samHeaders={...headers,'X-Dev-User':'sam@example.test'};
+  const samHeaders={...headers,Cookie:memberCookie('sam')};
   const title=`Browser integration ${crypto.randomUUID()}`;
   const records:FamilyRecord[]=[];
   try {
@@ -64,7 +75,7 @@ test('real Worker and D1 persist shared edits, enforce conflicts, privacy, and m
     expect(exportResponse.headers()['cache-control']).toContain('no-store');
     expect((await request.patch('/api/modules/tasks',{headers:samHeaders,data:{enabled:false}})).status()).toBe(403);
     expect((await request.post('/api/records',{headers:{...headers,Origin:'https://unrelated.example'},data:{kind:'task',data:{title,done:false}}})).status()).toBe(403);
-    expect((await request.get('/api/bootstrap',{headers:{'X-Dev-User':'outsider@example.test'}})).status()).toBe(403);
+    expect((await request.get('/api/bootstrap',{headers:{Cookie:''}})).status()).toBe(401);
   } finally {
     for(const record of records) await request.delete(`/api/records/${record.id}`,{headers:record.ownerId==='sam'?samHeaders:headers,data:{version:record.version}});
   }
@@ -88,7 +99,7 @@ test('real UI saves a shared task across reloads',async({page,request})=>{
 
 test('real Worker and D1 bind question audiences, reveal a completed pair, and revoke visibility after withdrawal', async ({ request }) => {
   const headers = { Origin: 'http://localhost:5173', 'Content-Type': 'application/json' };
-  const samHeaders = { ...headers, 'X-Dev-User': 'sam@example.test' };
+  const samHeaders = { ...headers, Cookie: memberCookie('sam') };
   const alex = await (await request.get('/api/bootstrap')).json() as Bootstrap;
   const sam = await (await request.get('/api/bootstrap', { headers: samHeaders })).json() as Bootstrap;
   expect(alex.questionPair).toEqual(['alex', 'sam']);

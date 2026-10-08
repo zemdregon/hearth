@@ -7,7 +7,7 @@ import type { Bootstrap, FamilyRecord, User } from '../src/shared/types';
 
 const ids = (records: FamilyRecord[]) => records.map(record => record.id).sort();
 const day = '2026-01-01';
-const lee: User = { id: 'lee', name: 'Lee', email: 'lee@example.test', role: 'member', color: '#426c85' };
+const lee: User = { id: 'lee', name: 'Lee', role: 'member', color: '#426c85' };
 
 function answer(ownerId: string, date = day, overrides: Partial<FamilyRecord<'answer'>['data']> = {}): FamilyRecord<'answer'> {
   return { id: `${ownerId}-${date}`, kind: 'answer', ownerId, data: { date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, participantIds: ['alex', 'sam'], ...overrides }, createdAt: `${date}T12:00:00.000Z`, updatedAt: `${date}T12:00:00.000Z`, version: 1 };
@@ -32,7 +32,7 @@ describe('local demo fixture', () => {
     expect(source.records.find(record => record.id === 'note-today')?.data).toMatchObject({ date: '2024-03-01' });
     expect(source.records.find(record => record.id === 'walk-1')?.data).toMatchObject({ date: '2024-02-29' });
     expect(source.records.find(record => record.id === 'walk-7')?.data).toMatchObject({ date: '2024-02-23' });
-    expect(source.members.every(member => member.email.endsWith('@example.test'))).toBe(true);
+    expect(source.members.every(member => !('email' in member))).toBe(true);
   });
 
   it('returns fresh records so a new demo discards earlier sample edits', () => {

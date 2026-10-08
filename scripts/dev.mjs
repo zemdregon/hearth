@@ -172,8 +172,8 @@ export async function checkLocalSession(url, signal) {
   catch { throw new Error('Could not verify local family access. Check the API startup logs.'); }
   // Check status only; never parse or display the member's bootstrap data.
   await response.body?.cancel();
-  if ([401, 403, 503].includes(response.status)) throw new Error(`Local family access is not ready (HTTP ${response.status}). Check DEV_AUTH, FAMILY_MEMBERS and FAMILY_TIMEZONE in .dev.vars; existing settings were preserved.`);
-  if (response.status !== 200) throw new Error(`Local family data could not load (HTTP ${response.status}). Check API logs and local D1 migrations.`);
+  if ([403, 503].includes(response.status)) throw new Error(`Local family access is not ready (HTTP ${response.status}). Check APP_ORIGIN, WEBAUTHN_RP_ID and FAMILY_TIMEZONE in .dev.vars; existing settings were preserved.`);
+  if (![200, 401].includes(response.status)) throw new Error(`Local family data could not load (HTTP ${response.status}). Check API logs and local D1 migrations.`);
 }
 
 async function launch(options) {
@@ -217,7 +217,7 @@ async function launch(options) {
       return;
     }
     const created = await ensureLocalVars(projectDirectory);
-    console.log(created ? 'Created .dev.vars from the local example. The shipped sample signs in as Alex (alex@example.test), with Sam as a second member.' : 'Using existing .dev.vars unchanged. Local identity values are not displayed.');
+    console.log(created ? 'Created .dev.vars from the local example. Import a roster and enroll a passkey using the operator commands before signing in.' : 'Using existing .dev.vars unchanged. Local identity values are not displayed.');
     if (!options.skipBuild) await run('Production asset build', 'npm', ['run', 'build']);
     else await access(resolve(local.assets.directory, 'index.html')).catch(() => { throw new Error('--skip-build needs an existing production build. Run npm run build first.'); });
     if (controller.signal.aborted) throw new Error('Launcher interrupted.');
@@ -232,11 +232,11 @@ async function launch(options) {
     const common = ['--config', configPath, '--persist-to', resolve(projectDirectory, '.wrangler/state'), '--env-file', resolve(projectDirectory, '.dev.vars')];
     await run('Local D1 migrations', process.execPath, [wrangler, 'd1', 'migrations', 'apply', local.d1_databases[0].database_name, '--local', ...common]);
     await Promise.all([checkPortAvailable(options.apiPort), checkPortAvailable(options.uiPort)]);
-    const api = command('Local API', process.execPath, [wrangler, 'dev', '--local', '--ip', loopback, '--port', String(options.apiPort), '--inspector-port', '0', '--log-level', 'warn', '--show-interactive-dev-session', 'false', '--var', `APP_ORIGIN:${origin}`, ...common]);
+    const api = command('Local API', process.execPath, [wrangler, 'dev', '--local', '--ip', loopback, '--port', String(options.apiPort), '--local-upstream', `localhost:${options.uiPort}`, '--upstream-protocol', 'http', '--inspector-port', '0', '--log-level', 'warn', '--show-interactive-dev-session', 'false', '--var', `APP_ORIGIN:${origin}`, '--var', 'WEBAUTHN_RP_ID:localhost', ...common]);
     await serverReady(api, `http://${loopback}:${options.apiPort}/api/health`, 'api');
-    await checkLocalSession(`http://${loopback}:${options.apiPort}/api/bootstrap`, controller.signal);
     const ui = command('Vite', process.execPath, [vite, '--config', viteConfig, '--host', loopback, '--port', String(options.uiPort), '--strictPort']);
     await serverReady(ui, `http://${loopback}:${options.uiPort}/`, 'ui');
+    await checkLocalSession(`${origin}/api/bootstrap`, controller.signal);
     console.log(`\nHearth is ready at ${origin}\nAPI: http://${loopback}:${options.apiPort}\nLocal D1 data persists in .wrangler/state. Workers AI is disabled in this local session.\nPress Ctrl+C to stop both services.`);
     const stopped = await Promise.race([api.exit.then(() => api.label), ui.exit.then(() => ui.label)]);
     if (!interrupted) throw new Error(`${stopped} stopped unexpectedly; both local services are shutting down.`);

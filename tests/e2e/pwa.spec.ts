@@ -73,9 +73,9 @@ test('sign-out clears private UI immediately, broadcasts to another tab, and sta
   await context.route('**/api/bootstrap', route => route.fulfill({ json: fixture, headers: { 'cache-control': 'no-store, private' } }));
   let releaseLogout: () => void = () => undefined;
   const logoutGate = new Promise<void>(resolve => { releaseLogout = resolve; });
-  await context.route('**/cdn-cgi/access/logout', async route => {
+  await context.route('**/api/auth/logout', async route => {
     await logoutGate;
-    await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Signed out fixture</title><p>Signed out</p>', headers: { 'cache-control': 'no-store' } });
+    await route.fulfill({ json: {ok:true}, headers: { 'cache-control': 'no-store' } });
   });
   await page.goto('/');
   await expect(page.getByText(fixture.user.name, { exact: true })).toBeVisible();
@@ -88,17 +88,17 @@ test('sign-out clears private UI immediately, broadcasts to another tab, and sta
     const retainsPrivateText = await page.getByRole('button', { name: 'Sign out', exact: true }).evaluate((button, privateName) => {
       (button as HTMLButtonElement).click();
       // Inspect the synchronous clear in this execution context. A locator
-      // assertion would wait for the intentionally paused navigation to finish.
+      // assertion would wait for the intentionally paused logout request to finish.
       return document.body.textContent?.includes(privateName) ?? false;
     }, fixture.user.name);
     expect(retainsPrivateText).toBe(false);
     await expect(otherTab.getByText(fixture.user.name, { exact: true })).toHaveCount(0);
     await expect(otherTab.getByRole('button', { name: 'Explore the local demo' })).toBeVisible();
   } finally { releaseLogout(); }
-  await page.waitForURL('**/cdn-cgi/access/logout');
-  await expect(page.getByText('Signed out', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Explore the local demo' })).toBeVisible();
   await context.unroute('**/api/bootstrap');
   await context.setOffline(true);
+  await page.goto('/offline-navigation', { waitUntil: 'domcontentloaded' });
   await page.goBack({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('button', { name: 'Explore the local demo' })).toBeVisible();
   await expect(page.getByText(fixture.user.name, { exact: true })).toHaveCount(0);

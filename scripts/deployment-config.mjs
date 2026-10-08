@@ -1,6 +1,6 @@
-import { parseAccessDomain, parseFamilyMembers, parseQuestionPair, parseTimezone } from '../src/server/config.mjs';
+import { parseTimezone } from '../src/server/config.mjs';
 
-const requiredSecretNames = ['ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'APP_ORIGIN', 'FAMILY_MEMBERS'];
+const requiredSecretNames = ['APP_ORIGIN', 'WEBAUTHN_RP_ID'];
 export const deploymentSecretNames = [...requiredSecretNames, 'FAMILY_QUESTION_PAIR'];
 const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', ...requiredSecretNames];
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -14,15 +14,16 @@ export function validateDeployment(config, environment) {
     if (typeof environment[name] !== 'string' || !environment[name].trim()) problems.push(`${name} is required.`);
   }
   if (environment.DEV_AUTH !== undefined && environment.DEV_AUTH !== 'false') problems.push('DEV_AUTH must be unset or false for deployment.');
-  if (config.workers_dev !== false) problems.push('workers_dev must be explicitly false; publish only on the Access-protected hostname.');
+  if (config.workers_dev !== false) problems.push('workers_dev must be explicitly false; publish only on the canonical passkey hostname.');
   if (typeof config.name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$/.test(config.name)) problems.push('Set a valid Worker name in wrangler.jsonc.');
   if (config.account_id !== undefined && config.account_id !== environment.CLOUDFLARE_ACCOUNT_ID) problems.push('Wrangler account_id must match CLOUDFLARE_ACCOUNT_ID, or be omitted.');
 
   const vars = config.vars === undefined ? {} : config.vars;
   if (!isObject(vars)) problems.push('Worker vars must be a JSON object.');
   else {
+    if (['ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'FAMILY_MEMBERS'].some(name => name in vars)) problems.push('Remove legacy Access and email roster settings from Worker vars.');
     if ('DEV_AUTH' in vars) problems.push('Remove DEV_AUTH from Worker vars; deployment pins it to false as a secret.');
-    if (deploymentSecretNames.some(name => name in vars)) problems.push('Access and family settings must come from deployment environment secrets, not Worker vars.');
+    if (deploymentSecretNames.some(name => name in vars)) problems.push('Passkey and family settings must come from deployment environment secrets, not Worker vars.');
     try { parseTimezone(vars.FAMILY_TIMEZONE); }
     catch { problems.push('FAMILY_TIMEZONE in Worker vars must be a valid IANA timezone.'); }
   }
@@ -36,13 +37,9 @@ export function validateDeployment(config, environment) {
     if (database.migrations_dir !== undefined && (typeof database.migrations_dir !== 'string' || !database.migrations_dir.trim())) problems.push('DB migrations_dir must be a nonempty directory path.');
   }
 
-  let domain;
-  if (environment.ACCESS_TEAM_DOMAIN) {
-    try { domain = parseAccessDomain(environment.ACCESS_TEAM_DOMAIN); }
-    catch { problems.push('ACCESS_TEAM_DOMAIN must be the Cloudflare Access team hostname, optionally prefixed with https://.'); }
+  for (const name of ['ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'FAMILY_MEMBERS']) {
+    if (environment[name] !== undefined) problems.push(`Remove legacy ${name} from deployment configuration.`);
   }
-  if (environment.ACCESS_AUD && (environment.ACCESS_AUD.trim() !== environment.ACCESS_AUD || environment.ACCESS_AUD.length > 4096)) problems.push('ACCESS_AUD must contain the exact Access application audience without surrounding whitespace.');
-
   let origin;
   if (environment.APP_ORIGIN) {
     try {
@@ -56,7 +53,7 @@ export function validateDeployment(config, environment) {
   const hasRoutes = config.routes !== undefined;
   if (hasRoute && hasRoutes) problems.push('Use routes or route in Wrangler configuration, not both.');
   const routes = hasRoutes ? config.routes : hasRoute ? [config.route] : [];
-  if (!Array.isArray(routes) || !routes.length || routes.length > 20) problems.push('Configure a route for the full Access-protected APP_ORIGIN hostname.');
+  if (!Array.isArray(routes) || !routes.length || routes.length > 20) problems.push('Configure a route for the full canonical APP_ORIGIN hostname.');
   else {
     for (const route of routes) {
       const entry = typeof route === 'string' ? { pattern: route } : route;
@@ -72,17 +69,14 @@ export function validateDeployment(config, environment) {
     }
   }
 
-  let members;
-  if (environment.FAMILY_MEMBERS) {
+  if (origin && environment.WEBAUTHN_RP_ID !== new URL(origin).hostname) problems.push('WEBAUTHN_RP_ID must exactly match the APP_ORIGIN hostname.');
+  let questionPair = null;
+  if (environment.FAMILY_QUESTION_PAIR !== undefined) {
     try {
-      members = parseFamilyMembers(environment.FAMILY_MEMBERS);
-      if (members.some(member => reservedHostname(member.email.split('@')[1]))) problems.push('FAMILY_MEMBERS must use real family email addresses; reserved example/test domains are not deployable.');
-    } catch { problems.push('FAMILY_MEMBERS must be 1–20 valid, unique member objects with id, name, email, role, color and at least one admin.'); }
-  }
-  let questionPair;
-  if (members) {
-    try { questionPair = parseQuestionPair(environment.FAMILY_QUESTION_PAIR, members); }
-    catch { problems.push('FAMILY_QUESTION_PAIR must be JSON containing two distinct existing family member ids, or null.'); }
+      questionPair = JSON.parse(environment.FAMILY_QUESTION_PAIR);
+      if (questionPair !== null && (!Array.isArray(questionPair) || questionPair.length !== 2 || questionPair[0] === questionPair[1] || questionPair.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id)))) throw new Error();
+      if (questionPair) questionPair.sort();
+    } catch { problems.push('FAMILY_QUESTION_PAIR must be JSON containing two distinct permanent member ids, or null; membership is checked against D1 at runtime.'); }
   }
 
   if (problems.length) return { problems: [...new Set(problems)] };
@@ -93,7 +87,7 @@ export function validateDeployment(config, environment) {
       migrationsDirectory: database.migrations_dir || 'migrations',
       workerName: config.name,
       // Always upload the normalized pair, including null, to replace a stale secret.
-      secrets: { ACCESS_TEAM_DOMAIN: domain, ACCESS_AUD: environment.ACCESS_AUD, APP_ORIGIN: origin, FAMILY_MEMBERS: JSON.stringify(members), FAMILY_QUESTION_PAIR: JSON.stringify(questionPair), DEV_AUTH: 'false' },
+      secrets: { APP_ORIGIN: origin, WEBAUTHN_RP_ID: environment.WEBAUTHN_RP_ID, FAMILY_QUESTION_PAIR: JSON.stringify(questionPair), DEV_AUTH: 'false' },
     },
   };
 }

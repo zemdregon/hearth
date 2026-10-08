@@ -1,10 +1,10 @@
-# Copy to .dev.vars for LOCAL development only. Never deploy DEV_AUTH.
-DEV_AUTH="true"
+# Copy to .dev.vars for LOCAL development. Sign-in always requires a passkey.
 APP_ORIGIN="http://localhost:5173"
+WEBAUTHN_RP_ID="localhost"
 FAMILY_TIMEZONE="UTC"
 # Optional: JSON pair of stable member ids, or null to disable daily questions.
 # Omission pairs only a two-member household; larger households need an explicit pair.
 # FAMILY_QUESTION_PAIR='["alex","sam"]'
-FAMILY_MEMBERS='[{"id":"alex","name":"Alex","email":"alex@example.test","role":"admin","color":"#557461"},{"id":"sam","name":"Sam","email":"sam@example.test","role":"member","color":"#b56d51"}]'
+# Members live in D1. Use the operator CLI for roster import and enrollment.
 # Workers AI requires a configured account for real model calls. The UI demo and
 # manually authored recipes work without Cloudflare credentials.

@@ -211,7 +211,6 @@ describe('local service readiness', () => {
   });
 
   it.each([
-    { status: 401, guidance: '.dev.vars' },
     { status: 403, guidance: '.dev.vars' },
     { status: 503, guidance: '.dev.vars' },
     { status: 500, guidance: 'local D1 migrations' },

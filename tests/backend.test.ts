@@ -1,7 +1,7 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
-import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+import { createHash, randomBytes } from 'node:crypto';
 import app from '../src/server/index';
 import type { Env } from '../src/server/env';
 import type { Answer, Bootstrap, FamilyRecord, User } from '../src/shared/types';
@@ -40,24 +40,46 @@ function database() {
       } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
     },
   };
-  return { db: adapter as unknown as D1Database, close: () => sqlite.close() };
+  return { db: adapter as unknown as D1Database, sqlite, close: () => sqlite.close() };
 }
 
 const members: User[] = [
-  { id: 'alex', name: 'Alex', email: 'alex@example.com', role: 'admin', color: '#38634A' },
-  { id: 'sam', name: 'Sam', email: 'sam@example.com', role: 'member', color: '#A96743' },
+  { id: 'alex', name: 'Alex', role: 'admin', color: '#38634A' },
+  { id: 'sam', name: 'Sam', role: 'member', color: '#A96743' },
 ];
 let env: Env;
 let fixture: ReturnType<typeof database>;
 const base = 'http://localhost:8787';
 const task = { title: 'Buy apples', done: false };
-const lee: User = { id: 'lee', name: 'Lee', email: 'lee@example.com', role: 'admin', color: '#555555' };
+const lee: User = { id: 'lee', name: 'Lee', role: 'admin', color: '#555555' };
 const answerData = (date = '2026-01-01', changes: Partial<Answer> = {}): Answer => ({ date, questionId: questionForDate(date).id, choice: 0, shareToProfile: false, participantIds: ['alex', 'sam'], ...changes });
+
+const sessionTokens = new Map<string, string>();
+let activeMembers: User[] = [];
+function setMembers(roster: User[]) {
+  activeMembers = roster;
+  const now = Math.floor(Date.now() / 1000);
+  fixture.sqlite.exec("UPDATE auth_members SET status = 'suspended'");
+  for (const member of roster) {
+    fixture.sqlite.prepare(`INSERT INTO auth_members (id,name,role,color,status,user_handle,created_at,updated_at)
+      VALUES (?,?,?,?,'active',?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,role=excluded.role,color=excluded.color,status='active'`)
+      .run(member.id,member.name,member.role,member.color,createHash('sha256').update(randomBytes(32)).digest('base64url'),now,now);
+    if (!sessionTokens.has(member.id)) {
+      const token = createHash('sha256').update(randomBytes(32)).digest('base64url');
+      const hash = createHash('sha256').update(token).digest('base64url');
+      sessionTokens.set(member.id, token);
+      fixture.sqlite.prepare(`INSERT INTO auth_credentials (id,member_id,public_key,counter,transports,backup_eligible,backed_up,created_at)
+        VALUES (?,?, 'cHVibGlj',0,'[]',0,0,?)`).run(`test-${member.id}`,member.id,now);
+      fixture.sqlite.prepare(`INSERT INTO auth_sessions (token_hash,member_id,credential_id,created_at,last_seen_at,expires_at,reauthenticated_at)
+        VALUES (?,?,?,?,?,?,?)`).run(hash,member.id,`test-${member.id}`,now,now,now+86400,now);
+    }
+  }
+}
 
 function request(path: string, options: { method?: string; body?: unknown; user?: string; headers?: Record<string, string>; url?: string; configuration?: Partial<Env> } = {}) {
   return app.request(`${options.url || base}${path}`, {
     method: options.method || 'GET',
-    headers: { Origin: base, 'Content-Type': 'application/json', 'X-Dev-User': options.user || 'alex@example.com', ...options.headers },
+    headers: { Origin: base, 'Content-Type': 'application/json', Cookie: `__Host-hearth_session=${sessionTokens.get(options.user || activeMembers[0]?.id || '') || ''}`, ...options.headers },
     ...(options.body === undefined ? {} : { body: typeof options.body === 'string' ? options.body : JSON.stringify(options.body) }),
   }, { ...env, ...options.configuration });
 }
@@ -83,40 +105,31 @@ async function legacyAnswer(user = members[0], changes: Partial<Answer> = {}) {
 
 beforeEach(() => {
   fixture = database();
-  env = { DB: fixture.db, DEV_AUTH: 'true', FAMILY_MEMBERS: JSON.stringify(members), FAMILY_TIMEZONE: 'UTC', APP_ORIGIN: base };
+  env = { DB: fixture.db, WEBAUTHN_RP_ID: 'localhost', FAMILY_TIMEZONE: 'UTC', APP_ORIGIN: base };
+  sessionTokens.clear();
+  setMembers(members);
 });
 afterEach(() => { fixture.close(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('authentication and request boundaries', () => {
-  it('exposes a minimal health response while unconfigured private API fails closed', async () => {
-    expect((await request('/api/health', { configuration: { FAMILY_MEMBERS: undefined } })).status).toBe(200);
-    const response = await request('/api/bootstrap', { configuration: { FAMILY_MEMBERS: undefined } });
+  it('exposes minimal health while unconfigured private API fails closed', async () => {
+    expect((await request('/api/health', { configuration: { APP_ORIGIN: undefined } })).status).toBe(200);
+    const response = await request('/api/bootstrap', { configuration: { APP_ORIGIN: undefined } });
     expect(response.status).toBe(503);
     expect(response.headers.get('Cache-Control')).toContain('no-store');
   });
-
-  it('does not enable development authentication on a remote host or accept an email header', async () => {
-    const response = await request('/api/bootstrap', { url: 'https://hearth.example', configuration: { APP_ORIGIN: 'https://hearth.example', ACCESS_TEAM_DOMAIN: 'hearth.cloudflareaccess.com', ACCESS_AUD: 'test-aud' }, headers: { 'Cf-Access-Authenticated-User-Email': 'alex@example.com' } });
-    expect(response.status).toBe(401);
+  it('requires a valid session even on loopback', async () => {
+    expect((await request('/api/bootstrap', { user: 'outsider' })).status).toBe(401);
+    expect((await request('/api/bootstrap', { headers: { Cookie: '' } })).status).toBe(401);
   });
-
-  it('requires allowlist membership even for local development', async () => {
-    expect((await request('/api/bootstrap', { user: 'outsider@example.com' })).status).toBe(403);
-    const response = await request('/api/bootstrap', { headers: { 'X-Dev-User': '' } });
-    expect(((await response.json()) as Bootstrap).user.id).toBe('alex');
-  });
-
   it('rejects cross-origin mutations and non-JSON requests', async () => {
-    const attempts: Record<string, string>[] = [{ Origin: 'https://attacker.example' }, { Origin: '' }, { 'Sec-Fetch-Site': 'cross-site' }];
-    for (const headers of attempts) {
+    for (const headers of [{ Origin: 'https://attacker.example' }, { Origin: '' }, { 'Sec-Fetch-Site': 'cross-site' }] as Record<string,string>[]) {
       expect((await request('/api/records', { method: 'POST', body: { kind: 'task', data: task }, headers })).status).toBe(403);
     }
     expect((await request('/api/records', { method: 'POST', body: { kind: 'task', data: task }, headers: { 'Content-Type': 'text/plain' } })).status).toBe(400);
     expect(await records()).toHaveLength(0);
   });
-
-  it('rejects duplicate members and invalid deployment timezone', async () => {
-    expect((await request('/api/bootstrap', { configuration: { FAMILY_MEMBERS: JSON.stringify([members[0], members[0]]) } })).status).toBe(503);
+  it('rejects invalid deployment timezone', async () => {
     expect((await request('/api/bootstrap', { configuration: { FAMILY_TIMEZONE: 'not/a-zone' } })).status).toBe(503);
   });
 });
@@ -126,7 +139,7 @@ describe('persistent records, validation, and optimistic concurrency', () => {
     const item = await create('task', task);
     expect(item.ownerId).toBe('alex');
     expect(item.version).toBe(1);
-    const update = await request(`/api/records/${item.id}`, { method: 'PATCH', user: 'sam@example.com', body: { data: { ...task, done: true }, version: 1 } });
+    const update = await request(`/api/records/${item.id}`, { method: 'PATCH', user: 'sam', body: { data: { ...task, done: true }, version: 1 } });
     expect(update.status).toBe(200);
     expect(((await update.json()) as FamilyRecord).version).toBe(2);
     expect((await request(`/api/records/${item.id}`, { method: 'PATCH', body: { data: task, version: 1 } })).status).toBe(409);
@@ -159,7 +172,7 @@ describe('persistent records, validation, and optimistic concurrency', () => {
     const mood = { date: '2026-01-01', score: 4, note: 'Quiet', shared: false };
     await create('mood', mood);
     expect((await request('/api/records', { method: 'POST', body: { kind: 'mood', data: mood } })).status).toBe(409);
-    await create('mood', mood, 'sam@example.com');
+    await create('mood', mood, 'sam');
   });
 
   it('limits imports before expensive processing and resets quotas in a new window', async () => {
@@ -170,7 +183,7 @@ describe('persistent records, validation, and optimistic concurrency', () => {
   });
 
   it('keeps member and deployment import quotas in separate namespaces', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([{ ...members[0], id: 'family' }, members[1]]);
+    setMembers([{ ...members[0], id: 'family' }, members[1]]);
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const response = await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: '1 cup rice. Boil until soft.' } });
       expect(response.status).not.toBe(429);
@@ -240,9 +253,9 @@ describe('coarse family capacity', () => {
   it('includes disabled and private records without disclosing hidden details or exact usage', async () => {
     await seedNotes(7998);
     expect((await request('/api/modules/notes', { method: 'PATCH', body: { enabled: false } })).status).toBe(200);
-    const mood = await create('mood', { date: '2026-01-01', score: 2, note: 'Private thoughts', shared: false }, 'sam@example.com');
+    const mood = await create('mood', { date: '2026-01-01', score: 2, note: 'Private thoughts', shared: false }, 'sam');
     expect((await (await request('/api/bootstrap')).json() as Bootstrap).capacity).toBe('available');
-    const answer = await create('answer', answerData(), 'sam@example.com');
+    const answer = await create('answer', answerData(), 'sam');
     for (const path of ['/api/bootstrap', '/api/export']) {
       const response = await request(path);
       expect(response.status).toBe(200);
@@ -253,7 +266,7 @@ describe('coarse family capacity', () => {
       const keys = ['user', 'members', 'modules', 'records', 'capacity', 'timezone', 'questionPair'];
       if (path === '/api/export') keys.push('schemaVersion', 'exportedAt', 'scope');
       expect(Object.keys(snapshot).sort()).toEqual(keys.sort());
-      const ownerSnapshot = await (await request(path, { user: 'sam@example.com' })).json() as Bootstrap;
+      const ownerSnapshot = await (await request(path, { user: 'sam' })).json() as Bootstrap;
       expect(ownerSnapshot.capacity).toBe(snapshot.capacity);
       expect(ownerSnapshot.records.map(record => record.id).sort()).toEqual([mood.id, answer.id].sort());
     }
@@ -319,10 +332,10 @@ describe('conditional member-visible bootstrap', () => {
 
   it('does not expose hidden activity through validators and binds them to the current viewer', async () => {
     const validator = await tag();
-    await create('mood', { date: '2026-01-01', score: 2, note: 'Not visible to Alex', shared: false }, members[1].email);
-    await create('answer', answerData(), members[1].email);
+    await create('mood', { date: '2026-01-01', score: 2, note: 'Not visible to Alex', shared: false }, members[1].id);
+    await create('answer', answerData(), members[1].id);
     expect(await tag()).toBe(validator);
-    const sam = await request('/api/bootstrap', { user: members[1].email, headers: { 'If-None-Match': validator } });
+    const sam = await request('/api/bootstrap', { user: members[1].id, headers: { 'If-None-Match': validator } });
     expect(sam.status).toBe(200);
     expect((await sam.json() as Bootstrap).records).toHaveLength(2);
     expect(sam.headers.get('ETag')).not.toBe(validator);
@@ -338,7 +351,7 @@ describe('conditional member-visible bootstrap', () => {
   });
 
   it('revalidates question reveal, withdrawal and configuration-dependent audiences', async () => {
-    const other = await create('answer', answerData(), members[1].email);
+    const other = await create('answer', answerData(), members[1].id);
     const waiting = await tag();
     const own = await create('answer', answerData());
     const revealed = await request('/api/bootstrap', { headers: { 'If-None-Match': waiting } });
@@ -354,19 +367,16 @@ describe('conditional member-visible bootstrap', () => {
     expect((await withdrawn.json() as Bootstrap).records).toEqual([]);
   });
 
-  it('includes family configuration and still checks authentication before returning 304', async () => {
+  it('includes family configuration and rechecks sessions before returning 304', async () => {
     const validator = await tag();
     const headers = { 'If-None-Match': validator };
-    for (const configuration of [
-      { FAMILY_TIMEZONE: 'Europe/London' },
-      { FAMILY_MEMBERS: JSON.stringify(members.map(member => ({ ...member, name: member.name + ' Updated' }))) },
-    ]) {
-      expect((await request('/api/bootstrap', { headers, configuration })).status).toBe(200);
-    }
-    expect((await request('/api/bootstrap', { headers, user: 'outsider@example.com' })).status).toBe(403);
-    expect((await request('/api/bootstrap', { headers, url: 'https://hearth.example', configuration: { APP_ORIGIN: 'https://hearth.example', ACCESS_TEAM_DOMAIN: 'hearth.cloudflareaccess.com', ACCESS_AUD: 'test-aud' } })).status).toBe(401);
-    expect((await request('/api/bootstrap', { headers, configuration: { FAMILY_MEMBERS: undefined } })).status).toBe(503);
-    expect((await request('/api/bootstrap', { headers, configuration: { FAMILY_MEMBERS: JSON.stringify([members[1], lee]) } })).status).toBe(403);
+    expect((await request('/api/bootstrap', { headers, configuration: { FAMILY_TIMEZONE: 'Europe/London' } })).status).toBe(200);
+    setMembers(members.map(member => ({ ...member, name: member.name + ' Updated' })));
+    expect((await request('/api/bootstrap', { headers })).status).toBe(200);
+    expect((await request('/api/bootstrap', { headers, user: 'outsider' })).status).toBe(401);
+    expect((await request('/api/bootstrap', { headers, configuration: { APP_ORIGIN: undefined } })).status).toBe(503);
+    setMembers([members[1], lee]);
+    expect((await request('/api/bootstrap', { headers, user: 'alex' })).status).toBe(401);
   });
 
   it.each([{ years: 2, days: 730, habits: 4, count: 6616 }, { years: 5, days: 1825, habits: 1, count: 9898 }])('bounds unchanged refresh bodies for a $years-year family fixture', async ({ years, days, habits, count }) => {
@@ -404,16 +414,16 @@ describe('conditional member-visible bootstrap', () => {
 
 describe('private data, family visibility, and module boundaries', () => {
   it('never exposes private moods to other members or administrators through bootstrap or export', async () => {
-    const mood = await create('mood', { date: '2026-01-01', score: 2, note: 'Private thoughts', shared: false }, 'sam@example.com');
+    const mood = await create('mood', { date: '2026-01-01', score: 2, note: 'Private thoughts', shared: false }, 'sam');
     expect(await records()).toHaveLength(0);
-    expect(await records('sam@example.com')).toHaveLength(1);
+    expect(await records('sam')).toHaveLength(1);
     const exported = await (await request('/api/export')).json() as Bootstrap & { schemaVersion: number };
     expect(exported.schemaVersion).toBe(1);
     expect(exported.records).toHaveLength(0);
     for (const method of ['PATCH', 'DELETE']) {
       expect((await request(`/api/records/${mood.id}`, { method, body: method === 'PATCH' ? { data: { ...mood.data, shared: true }, version: 1 } : { version: 1 } })).status).toBe(403);
     }
-    expect((await request(`/api/records/${mood.id}`, { method: 'PATCH', user: 'sam@example.com', body: { data: { ...mood.data, shared: true }, version: 1 } })).status).toBe(200);
+    expect((await request(`/api/records/${mood.id}`, { method: 'PATCH', user: 'sam', body: { data: { ...mood.data, shared: true }, version: 1 } })).status).toBe(200);
     expect(await records()).toHaveLength(1);
   });
 
@@ -421,19 +431,19 @@ describe('private data, family visibility, and module boundaries', () => {
     const answer = answerData();
     const first = await create('answer', { ...answer, participantIds: ['sam', 'alex'] });
     expect((first as FamilyRecord<'answer'>).data.participantIds).toEqual(['alex', 'sam']);
-    expect(await records('sam@example.com')).toHaveLength(0);
-    await create('answer', { ...answer, choice: 1 }, 'sam@example.com');
+    expect(await records('sam')).toHaveLength(0);
+    await create('answer', { ...answer, choice: 1 }, 'sam');
     expect(await records()).toHaveLength(2);
-    expect(await records('sam@example.com')).toHaveLength(2);
+    expect(await records('sam')).toHaveLength(2);
     expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: { ...answer, questionId: 'fake-question' } } })).status).toBe(400);
   });
 
   it('restricts profile and habit writes to their owner and habit logs to the habit owner', async () => {
     const profile = await create('profile', { bio: '', loves: [], suggestions: [] });
-    expect((await request(`/api/records/${profile.id}`, { method: 'PATCH', user: 'sam@example.com', body: { data: { bio: 'Changed', loves: [], suggestions: [] }, version: 1 } })).status).toBe(403);
+    expect((await request(`/api/records/${profile.id}`, { method: 'PATCH', user: 'sam', body: { data: { bio: 'Changed', loves: [], suggestions: [] }, version: 1 } })).status).toBe(403);
     expect((await request('/api/records', { method: 'POST', body: { kind: 'habit', data: { title: 'Walk', userId: 'sam', color: '#112233' } } })).status).toBe(403);
     const habit = await create('habit', { title: 'Walk', userId: 'alex', color: '#112233' });
-    expect((await request('/api/records', { method: 'POST', user: 'sam@example.com', body: { kind: 'habitLog', data: { habitId: habit.id, date: '2026-01-01' } } })).status).toBe(403);
+    expect((await request('/api/records', { method: 'POST', user: 'sam', body: { kind: 'habitLog', data: { habitId: habit.id, date: '2026-01-01' } } })).status).toBe(403);
     await create('habitLog', { habitId: habit.id, date: '2026-01-01' });
     expect((await request(`/api/records/${habit.id}`, { method: 'DELETE', body: { version: 2 } })).status).toBe(409);
     expect((await records()).filter(record => record.kind === 'habitLog')).toHaveLength(1);
@@ -443,7 +453,7 @@ describe('private data, family visibility, and module boundaries', () => {
 
   it('preserves disabled module records and denies reads, writes, and imports until re-enabled', async () => {
     const item = await create('task', task);
-    expect((await request('/api/modules/tasks', { method: 'PATCH', user: 'sam@example.com', body: { enabled: false } })).status).toBe(403);
+    expect((await request('/api/modules/tasks', { method: 'PATCH', user: 'sam', body: { enabled: false } })).status).toBe(403);
     expect((await request('/api/modules/tasks', { method: 'PATCH', body: { enabled: false } })).status).toBe(200);
     expect(await records()).toHaveLength(0);
     expect(((await (await request('/api/export')).json()) as Bootstrap).records).toHaveLength(0);
@@ -458,14 +468,27 @@ describe('private data, family visibility, and module boundaries', () => {
 });
 
 describe('question pair configuration, immutable scope, and family consent', () => {
+  it('suspends an unavailable pair without breaking other members or revealing saved answers', async () => {
+    env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
+    const own = await create('answer', answerData());
+    await create('answer', answerData(), 'sam');
+    fixture.sqlite.exec("UPDATE auth_members SET status='suspended' WHERE id='sam'");
+    const response = await request('/api/bootstrap');
+    expect(response.status).toBe(200);
+    const data = await response.json() as Bootstrap;
+    expect(data.questionPair).toBeNull();
+    expect(data.records.map(record=>record.id)).toEqual([own.id]);
+    expect((await request('/api/bootstrap',{user:'sam'})).status).toBe(401);
+    expect((await request('/api/records',{method:'POST',body:{kind:'answer',data:answerData('2026-01-02')}})).status).toBe(403);
+  });
   it('infers only a two-person pair and includes it in bootstrap and export', async () => {
     for (const path of ['/api/bootstrap', '/api/export']) {
       expect((await (await request(path)).json() as Bootstrap).questionPair).toEqual(['alex', 'sam']);
     }
-    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    setMembers([...members, lee]);
     expect((await (await request('/api/bootstrap')).json() as Bootstrap).questionPair).toBeNull();
     expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: answerData() } })).status).toBe(403);
-    env.FAMILY_MEMBERS = JSON.stringify(members);
+    setMembers(members);
     env.FAMILY_QUESTION_PAIR = 'null';
     expect((await (await request('/api/bootstrap')).json() as Bootstrap).questionPair).toBeNull();
     expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: answerData() } })).status).toBe(403);
@@ -478,40 +501,40 @@ describe('question pair configuration, immutable scope, and family consent', () 
   });
 
   it('requires the submitted scope, rejects stale or forged pairs, and excludes other family members', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    setMembers([...members, lee]);
     env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
     for (const participantIds of [undefined, ['alex', 'lee'], ['alex', 'stranger']]) {
       expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: { ...answerData(), participantIds } } })).status).toBe(409);
     }
     expect((await request('/api/records', { method: 'POST', body: { kind: 'answer', data: answerData('2026-01-01', { participantIds: ['alex', 'alex'] }) } })).status).toBe(400);
-    expect((await request('/api/records', { method: 'POST', user: lee.email, body: { kind: 'answer', data: answerData() } })).status).toBe(403);
+    expect((await request('/api/records', { method: 'POST', user: lee.id, body: { kind: 'answer', data: answerData() } })).status).toBe(403);
     expect(await records()).toHaveLength(0);
   });
 
   it('releases only opted-in answers to a third member, including an administrator, after paired completion', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    setMembers([...members, lee]);
     env.FAMILY_QUESTION_PAIR = '["sam","alex"]';
     const first = await create('answer', answerData('2026-01-01', { shareToProfile: true }));
-    expect(await records(lee.email)).toHaveLength(0);
-    const partner = await create('answer', answerData('2026-01-01', { choice: 1 }), members[1].email);
-    expect((await records(lee.email)).map(record => record.id)).toEqual([first.id]);
-    expect((await (await request('/api/export', { user: lee.email })).json() as Bootstrap).records.map(record => record.id)).toEqual([first.id]);
+    expect(await records(lee.id)).toHaveLength(0);
+    const partner = await create('answer', answerData('2026-01-01', { choice: 1 }), members[1].id);
+    expect((await records(lee.id)).map(record => record.id)).toEqual([first.id]);
+    expect((await (await request('/api/export', { user: lee.id })).json() as Bootstrap).records.map(record => record.id)).toEqual([first.id]);
     expect(await records()).toHaveLength(2);
-    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: lee.email, body: { version: 1, data: { ...partner.data, shareToProfile: true } } })).status).toBe(403);
+    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: lee.id, body: { version: 1, data: { ...partner.data, shareToProfile: true } } })).status).toBe(403);
     expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, shareToProfile: false } } })).status).toBe(200);
-    expect(await records(lee.email)).toHaveLength(0);
-    expect(await records(members[1].email)).toHaveLength(2);
+    expect(await records(lee.id)).toHaveLength(0);
+    expect(await records(members[1].id)).toHaveLength(2);
   });
 
   it('removes partner and profile release when a paired answer is deleted', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    setMembers([...members, lee]);
     env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
     await create('answer', answerData('2026-01-01', { shareToProfile: true }));
-    const partner = await create('answer', answerData(), members[1].email);
-    expect(await records(lee.email)).toHaveLength(1);
-    expect((await request(`/api/records/${partner.id}`, { method: 'DELETE', user: members[1].email, body: { version: 1 } })).status).toBe(200);
-    expect(await records(lee.email)).toHaveLength(0);
-    expect(await records(members[1].email)).toHaveLength(0);
+    const partner = await create('answer', answerData(), members[1].id);
+    expect(await records(lee.id)).toHaveLength(1);
+    expect((await request(`/api/records/${partner.id}`, { method: 'DELETE', user: members[1].id, body: { version: 1 } })).status).toBe(200);
+    expect(await records(lee.id)).toHaveLength(0);
+    expect(await records(members[1].id)).toHaveLength(0);
   });
 
   it('rejects edits to an answer date, question, or participant tuple', async () => {
@@ -526,7 +549,7 @@ describe('question pair configuration, immutable scope, and family consent', () 
     const first = await legacyAnswer(members[0], { shareToProfile: true });
     const partner = await legacyAnswer(members[1], { shareToProfile: true });
     expect((await records()).map(record => record.id)).toEqual([first.id]);
-    expect((await records(members[1].email)).map(record => record.id)).toEqual([partner.id]);
+    expect((await records(members[1].id)).map(record => record.id)).toEqual([partner.id]);
     expect((await (await request('/api/export')).json() as Bootstrap).records.map(record => record.id)).toEqual([first.id]);
     expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, choice: 1, shareToProfile: false } } })).status).toBe(200);
     const current = await getRecord(env.DB, first.id) as FamilyRecord<'answer'>;
@@ -536,51 +559,51 @@ describe('question pair configuration, immutable scope, and family consent', () 
   });
 
   it('preserves authors’ history after pairing changes without reassigning it to a new partner', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    setMembers([...members, lee]);
     env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
     const first = await create('answer', answerData('2026-01-01', { shareToProfile: true }));
-    const partner = await create('answer', answerData(), members[1].email);
+    const partner = await create('answer', answerData(), members[1].id);
     env.FAMILY_QUESTION_PAIR = '["alex","lee"]';
     expect((await records()).map(record => record.id)).toEqual([first.id]);
-    expect((await records(members[1].email)).map(record => record.id)).toEqual([partner.id]);
-    expect(await records(lee.email)).toHaveLength(0);
+    expect((await records(members[1].id)).map(record => record.id)).toEqual([partner.id]);
+    expect(await records(lee.id)).toHaveLength(0);
     expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, choice: 1, shareToProfile: false } } })).status).toBe(200);
-    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: members[1].email, body: { version: 1, data: { ...partner.data, choice: 1 } } })).status).toBe(200);
-    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: members[1].email, body: { version: 2, data: { ...partner.data, shareToProfile: true } } })).status).toBe(409);
+    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: members[1].id, body: { version: 1, data: { ...partner.data, choice: 1 } } })).status).toBe(200);
+    expect((await request(`/api/records/${partner.id}`, { method: 'PATCH', user: members[1].id, body: { version: 2, data: { ...partner.data, shareToProfile: true } } })).status).toBe(409);
     const nextDay = answerData('2026-01-02', { participantIds: ['alex', 'lee'] });
     await create('answer', nextDay);
-    await create('answer', nextDay, lee.email);
-    expect((await records(lee.email)).map(record => record.id)).not.toContain(first.id);
+    await create('answer', nextDay, lee.id);
+    expect((await records(lee.id)).map(record => record.id)).not.toContain(first.id);
   });
 
   it('preserves private owner reads and edits while pairing is disabled or a partner is removed', async () => {
     const first = await create('answer', answerData());
-    await create('answer', answerData(), members[1].email);
+    await create('answer', answerData(), members[1].id);
     env.FAMILY_QUESTION_PAIR = 'null';
     expect((await records()).map(record => record.id)).toEqual([first.id]);
     expect((await request(`/api/records/${first.id}`, { method: 'PATCH', body: { version: 1, data: { ...first.data, choice: 1 } } })).status).toBe(200);
-    env.FAMILY_MEMBERS = JSON.stringify([members[0], lee]);
+    setMembers([members[0], lee]);
     env.FAMILY_QUESTION_PAIR = undefined;
-    expect(await records(lee.email)).toHaveLength(0);
+    expect(await records(lee.id)).toHaveLength(0);
     expect((await records()).map(record => record.id)).toEqual([first.id]);
   });
 
   it('blocks same-day submission if either current participant already answered under another scope', async () => {
-    env.FAMILY_MEMBERS = JSON.stringify([...members, lee]);
+    setMembers([...members, lee]);
     env.FAMILY_QUESTION_PAIR = '["alex","sam"]';
     const first = await create('answer', answerData());
     env.FAMILY_QUESTION_PAIR = '["alex","lee"]';
-    for (const user of [members[0].email, lee.email]) {
+    for (const user of [members[0].id, lee.id]) {
       expect((await request('/api/records', { method: 'POST', user, body: { kind: 'answer', data: answerData('2026-01-01', { participantIds: ['alex', 'lee'] }) } })).status).toBe(409);
     }
     expect((await getRecord(env.DB, first.id)).data).toEqual(first.data);
-    expect(await records(lee.email)).toHaveLength(0);
+    expect(await records(lee.id)).toHaveLength(0);
   });
 
   it('blocks legacy partner collisions inside the insert without upgrading the stored answer', async () => {
     const legacy = await legacyAnswer(members[0]);
     await expect(createRecord(env.DB, members[1], 'answer', answerData())).rejects.toMatchObject({ status: 409 });
-    expect((await request('/api/records', { method: 'POST', user: members[1].email, body: { kind: 'answer', data: answerData() } })).status).toBe(409);
+    expect((await request('/api/records', { method: 'POST', user: members[1].id, body: { kind: 'answer', data: answerData() } })).status).toBe(409);
     expect((await getRecord(env.DB, legacy.id)).data).toEqual(legacy.data);
   });
 
@@ -592,34 +615,21 @@ describe('question pair configuration, immutable scope, and family consent', () 
   });
 });
 
-describe('Cloudflare Access signed tokens', () => {
-  let privateKey: CryptoKey;
-  let publicJwk: Awaited<ReturnType<typeof exportJWK>>;
-  beforeAll(async () => {
-    const keys = await generateKeyPair('RS256');
-    privateKey = keys.privateKey;
-    publicJwk = { ...await exportJWK(keys.publicKey), kid: 'hearth-test', alg: 'RS256', use: 'sig' };
+describe('session authentication replaces identity headers', () => {
+  it('rejects Access and development identity headers without a valid session', async () => {
+    for (const forged of [
+      { 'Cf-Access-Jwt-Assertion': 'legacy.jwt.token' },
+      { 'Cf-Access-Authenticated-User-Email': 'legacy-value' },
+      { 'X-Dev-User': 'alex' },
+    ] as Record<string,string>[]) {
+      expect((await request('/api/bootstrap', { headers: { ...forged, Cookie: '' } })).status).toBe(401);
+    }
   });
-  async function signedToken(options: { email?: string; issuer?: string; audience?: string; expires?: string; omitExpiry?: boolean } = {}) {
-    let jwt = new SignJWT({ email: options.email || 'alex@example.com', type: 'app' }).setProtectedHeader({ alg: 'RS256', kid: 'hearth-test' }).setSubject('access-user').setIssuedAt().setIssuer(options.issuer || 'https://hearth-test.cloudflareaccess.com').setAudience(options.audience || 'test-audience');
-    if (!options.omitExpiry) jwt = jwt.setExpirationTime(options.expires || '1h');
-    return jwt.sign(privateKey);
-  }
-  function productionRequest(token: string) {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ keys: [publicJwk] }), { headers: { 'Content-Type': 'application/json' } })));
-    return request('/api/bootstrap', { url: 'https://hearth.example', headers: { 'Cf-Access-Jwt-Assertion': token }, configuration: { APP_ORIGIN: 'https://hearth.example', ACCESS_TEAM_DOMAIN: 'hearth-test.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } });
-  }
-
-  it('verifies signature, issuer, audience, expiry, and independent family membership', async () => {
-    expect((await productionRequest(await signedToken())).status).toBe(200);
-    expect((await productionRequest(await signedToken({ issuer: 'https://wrong.cloudflareaccess.com' }))).status).toBe(401);
-    expect((await productionRequest(await signedToken({ audience: 'wrong-audience' }))).status).toBe(401);
-    expect((await productionRequest(await signedToken({ expires: '-1h' }))).status).toBe(401);
-    expect((await productionRequest(await signedToken({ omitExpiry: true }))).status).toBe(401);
-    expect((await productionRequest(await signedToken({ email: 'outsider@example.com' }))).status).toBe(403);
-    const token = await signedToken();
-    const [header, payload, signature] = token.split('.');
-    const altered = `${header}.${payload}.${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
-    expect((await productionRequest(altered)).status).toBe(401);
+  it('rechecks member status and session revocation on each private request', async () => {
+    expect((await request('/api/bootstrap')).status).toBe(200);
+    fixture.sqlite.exec("UPDATE auth_members SET status = 'suspended' WHERE id = 'alex'");
+    expect((await request('/api/bootstrap')).status).toBe(401);
+    fixture.sqlite.exec("UPDATE auth_members SET status = 'active' WHERE id = 'alex'; UPDATE auth_sessions SET revoked_at = created_at WHERE member_id = 'alex'");
+    expect((await request('/api/bootstrap')).status).toBe(401);
   });
 });

@@ -1,23 +1,23 @@
 # Cloudflare deployment
 
-## Authentication transition — deployment on hold
+## Passkey deployment prerequisites
 
-The accepted deployment target uses internal passkey-only authentication, not Cloudflare Access. No email identity provider, password, OTP or public signup is part of the new plan. Follow [AUTHENTICATION.md](AUTHENTICATION.md) for the implementation and cutover gates. The current Worker and deployment scripts still require the old Access configuration; do not weaken or bypass them to publish an unfinished replacement.
+The Worker uses internal passkey-only authentication. No email identity provider, password, OTP or public signup is supported. Follow [AUTHENTICATION.md](AUTHENTICATION.md) for operator enrollment/recovery and the verification gates. Production release still requires a stable hostname, real-device checks and the live operational rehearsals recorded in the roadmap.
 
 Cloudflare Workers, D1 and Workers AI remain the hosting stack. Token/account configuration and read-only D1 access were verified on 2026-10-08; `wrangler.jsonc` identifies the existing `hearth-family-db`. Remote migrations, deployment and inference have not been verified.
 
-Planned release sequence, executable only after the authentication implementation is complete:
+Release sequence after local verification:
 
 1. Select a stable canonical HTTPS hostname and exact `APP_ORIGIN`; configure a matching WebAuthn RP ID and Worker route. Keep `workers_dev: false` and reject unexpected origins. Changing the RP ID later requires an explicit credential migration/re-enrollment plan.
 2. Back up D1 and rehearse restore in isolation. Apply the new authentication migrations after reviewing their preservation of permanent member ids and existing data ownership.
-3. Use the explicit operator bootstrap command to authorize the initial administrator's passkey enrollment. The command and private enrollment UI are planned work, not currently available. Add a second passkey and rehearse recovery before relying on the deployment.
-4. Enroll other members through administrator-issued private invitations. Store membership internally in D1 without email fields. Set the family timezone and question pair using permanent ids.
-5. Run the revised preflight and deployment workflow after its tests pass. It must validate passkey origin/RP configuration and reject production development bypasses, without requiring Access secrets or email-bearing `FAMILY_MEMBERS`. Remove legacy Access configuration only with the verified replacement release.
-6. Verify unauthenticated private API denial, passkey sign-in, enrollment/recovery, session revocation, member isolation and private moods/answers on the actual phones and PWA. Then verify recipe text/photo AI drafts and model licensing in the target account.
+3. Configure `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `APP_ORIGIN` and `WEBAUTHN_RP_ID`, then run preflight and publish the verified passkey Worker. Preflight rejects legacy Access/email roster configuration and production development bypass settings. The new Worker denies private access until internal enrollment and passkey assertion succeed. Remove any existing Access application gate and legacy Worker secrets as part of this authorized release after verifying that denial; the new Worker never reads them. Deployment keeps `DEV_AUTH=false` solely to neutralize a stale setting on rollback; the current runtime has no bypass branch.
+4. Use the reviewed operator import and bootstrap commands to authorize the initial administrator's passkey enrollment. The operator command defaults to local and dry-run; selecting the remote target and applying a reviewed plan are explicit actions. Add a second passkey and rehearse recovery before relying on the deployment.
+5. Enroll other members through administrator-issued private invitations. Store membership internally in D1 without email fields. Set the family timezone and question pair using permanent ids.
+6. Verify unauthenticated private API denial, passkey sign-in, enrollment/recovery, session revocation, member isolation and private moods/answers on the actual phones and PWA before admitting normal family use. Then verify recipe text/photo AI drafts and model licensing in the target account.
 
 Member ids are permanent ownership keys. Never assign a departed member's id to a different person: doing so grants that identity the former member's private records. Removing a member revokes application access but preserves their data; their shared records remain available and private records remain private.
 
-Keep account tokens and enrollment authorizations out of commits, command history and logs. The current `npm run deploy` applies remote migrations and publishes the Worker; it is not a passkey deployment command yet.
+Keep account tokens and enrollment authorizations out of commits, command history and logs. `npm run deploy` runs checks, applies remote migrations, uploads the passkey configuration and publishes the Worker. It does not automatically create or enroll members.
 
 Workers AI calls require a live binding and may incur account usage charges. JSON-LD extraction and manual recipe entry avoid unnecessary model calls. Set Cloudflare account budgets/alerts appropriate for household use. Never log recipe images, access tokens, mood entries or full API bodies in observability.
 
@@ -25,9 +25,7 @@ The vision model `@cf/meta/llama-3.2-11b-vision-instruct` requires account accep
 
 ## Daily question pairing
 
-The following describes the current configuration. During the auth transition, validate pair ids against internal membership instead of the email-bearing deployment roster; preserve the same privacy semantics and explicit pair across migration.
-
-`FAMILY_QUESTION_PAIR` configures one pair per household. Both ids must be distinct and present in `FAMILY_MEMBERS`; invalid JSON, unknown ids, and arrays of any other size fail closed. The runtime and deployment preflight share the same parser and normalize id order. This setting is optional, but every deployment uploads its resolved pair or `null` as a Worker secret. Removing the environment setting therefore replaces a previously configured secret with the current roster's default instead of retaining stale pairing. Use explicit JSON `null` to keep even a two-member household unpaired. The two-person demo continues to pair automatically.
+`FAMILY_QUESTION_PAIR` configures one pair of distinct permanent D1 member ids. Deployment validates its shape and pins omitted configuration to JSON `null` so a stale pair is not retained. The Worker validates configured ids against the complete internal roster; when either member is pending or suspended, pairing is unavailable (`null`) without breaking other family API access. Unknown ids or malformed configuration fail closed. Local runtime omission infers a pair only if the complete roster has exactly two members, both active; the fictional two-person demo also pairs automatically. Set an explicit pair for deployed households.
 
 New answers record their original two participant ids. Private reveal requires both members of that exact active pair to answer the same dated question. Profile sharing is a separate, reversible author opt-in that makes an answer visible to the whole family only after that answer has been released to its pair. Changing or disabling the pair hides answers from a previous pair from nonowners, including on profiles; owners retain their own history. Saved answers and stale drafts cannot be assigned to a replacement partner. If today's saved answer belongs to a different pair, the new pair resumes tomorrow.
 

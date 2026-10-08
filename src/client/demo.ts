@@ -6,8 +6,8 @@ import { questionForDate } from '../shared/questions';
 import { familyCapacity } from '../shared/capacity';
 
 export const demoMembers: User[] = [
-  { id: 'alex', name: 'Alex', email: 'alex@example.test', role: 'admin', color: '#557461' },
-  { id: 'sam', name: 'Sam', email: 'sam@example.test', role: 'member', color: '#b56d51' },
+  { id: 'alex', name: 'Alex', role: 'admin', color: '#557461' },
+  { id: 'sam', name: 'Sam', role: 'member', color: '#b56d51' },
 ];
 const dayOffset = (amount: number) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + amount); return d.toISOString().slice(0,10); };
 export function createDemo(): Bootstrap {

@@ -3,7 +3,7 @@ import { answerPairComplete, canViewAnswer, sameQuestionPair } from '../src/shar
 import type { Answer, FamilyRecord, QuestionPair, User } from '../src/shared/types';
 
 const pair: QuestionPair = ['alex', 'sam'];
-const members: User[] = ['alex', 'sam', 'lee'].map(id => ({ id, name: id, email: `${id}@example.com`, role: id === 'lee' ? 'admin' : 'member', color: '#555555' }));
+const members: User[] = ['alex', 'sam', 'lee'].map(id => ({ id, name: id, role: id === 'lee' ? 'admin' : 'member', color: '#555555' }));
 const answer = (ownerId: string, changes: Partial<Answer> = {}): FamilyRecord<'answer'> => ({
   id: ownerId, kind: 'answer', ownerId, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z', version: 1,
   data: { date: '2026-01-01', questionId: 'question', choice: 0, shareToProfile: false, participantIds: pair, ...changes },
