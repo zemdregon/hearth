@@ -1,4 +1,38 @@
-# Independent release review — 2026-10-07
+# Release review
+
+## Current release gates — 2026-10-08
+
+The current implementation uses internal passkeys only. The Access-era reviews below are historical regression evidence, not the current authentication design. Latest completed checks: 556 unit/integration tests, 12 focused passkey browser checks, production build, Worker dry run and the isolated local D1 restore/recovery rehearsal. The preceding complete browser run passed 103 checks. See [ROADMAP.md](ROADMAP.md) for exact scopes and chronology.
+
+Read-only account inspection observed the following on 2026-10-08:
+
+| Gate | Observed state | Remaining evidence |
+| --- | --- | --- |
+| Account token | Account-token verification returned HTTP 200 and `active`; authenticated resource reads succeeded | Authorization for the intended remote writes; read success does not prove write permissions |
+| Worker | Deployments lookup returned HTTP 404/code 10007: `hearth-family` does not exist | First deployed version, canonical route and anonymous private-API denial |
+| Database | `hearth-family-db` metadata returned HTTP 200, zero tables and 12,288 bytes | Remote backup baseline, six migrations and initial reviewed member setup |
+| Hostname | Twelve active account zones are available; the Worker custom-domain list has no Hearth entry | Operator-selected permanent hostname, matching RP ID and route |
+| AI models | Both configured model names appeared in the authenticated model catalog | License acceptance, permission to invoke them and successful bounded fictional text/photo inference |
+| Restore | Local export/import, authentication lock, retired-key rejection and fresh recovery passed | Isolated remote D1 import/Time Travel and remote transaction behavior |
+| Real devices | Chromium virtual-authenticator checks passed | Actual phone/PWA enrollment, second-device sign-in, backup-key use and recovery |
+
+The token is account-owned: `/user/tokens/verify` returned HTTP 401 while the [account-token verification endpoint](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/verify/) returned `active`. Do not diagnose this token as unusable from the user-token endpoint alone. No token value, account id, private roster or database content is recorded here. Account/model metadata is not evidence of a deployed app or successful inference. No remote resource was created or modified during this inspection.
+
+### Real-device acceptance procedure
+
+Run this after a deliberately authorized candidate deployment at the final hostname. Use operator-approved test membership and fictional records; retain the permanent member ids if those identities will continue into normal family use. Record the date, deployed version, device/OS/browser, install mode, outcome and any reproducible failure for each scenario. Record outcomes rather than private links, cookies, credentials or family content.
+
+1. On the first intended phone/browser, open the initial administrator invitation. Confirm its fragment disappears from the address/history, register a passkey with device verification, and verify registration alone leaves the private API unauthenticated. Sign in separately, reload, and confirm the expected identity.
+2. Install the PWA where supported. Launch it from the home screen and verify passkey sign-in at the same canonical origin. Background/resume it, then sign out and use back navigation/offline launch; private content must not return. Record any OS/browser limitation rather than assuming virtual-authenticator behavior carries over.
+3. Add a second passkey or security key after fresh verification. Sign in with it from the second intended device/browser. Verify the household can recover access when the first device is unavailable. Test each OS/browser actually used by the family; a single passing phone does not establish all-device support.
+4. Issue a separate member invitation and open it both in a new tab and an already-running PWA. Use fresh invitations for each successful enrollment scenario. Verify each token is cleared, its intended identity cannot be changed, and separately verify reuse/expiry/revocation prevents enrollment. An invitation must never directly create a session.
+5. Revoke one backup credential and verify it cannot sign in. Verify the remaining credential still works and ordinary management prevents removing the last usable passkey. Revoke all sessions; previously open devices must lose private API access and clear their UI on the next check.
+6. Rehearse member recovery with a second administrator, and operator recovery in the isolated release test setup. Old credentials, cookies and invitations must fail. Register a fresh passkey for the same permanent id, separately sign in, and confirm that owned records and private/shared visibility remain correct. Check suspension and the last-active-administrator safeguard.
+7. Use only fictional recipe text and a fictional recipe image for authorized live AI smoke tests. Confirm returned content is a reviewable draft and a failed call does not save a recipe. Do not send mood, profile or unrelated family data. Record actual model success or the exact redacted failure; catalog presence alone is insufficient.
+
+Keep unresolved scenarios on the roadmap. Virtual-authenticator tests, local restore success and a deployment dry run cannot close these live gates. Follow the [deployment and restore sequence](DEPLOYMENT.md) before normal family use.
+
+## Independent release review — 2026-10-07
 
 Read-only source review covered the README development path, deployment scripts, API/client contracts, SQLite migrations and storage budget, module visibility, record versions, session handling, exports, PWA caching, and module form behavior. Existing implementation files were not changed by this review.
 
