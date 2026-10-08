@@ -1,6 +1,8 @@
 # Hearth roadmap
 
 ## First usable release — verified locally
+These checked milestones describe the pre-transition implementation. They do not establish passkey readiness; the authentication replacement below is now the next implementation priority.
+
 - [x] Private Workers API with verified family access and D1 persistence
 - [x] Modular responsive app shell, installable PWA, offline public shell
 - [x] Recipe library, authoring, URL/text extraction, camera OCR drafts, portion scaling
@@ -29,7 +31,12 @@
 - [x] Atomic offline-shell updates, exact-build document verification and isolated cache fallback
 
 ## Next roadmap
-- [ ] Complete live Cloudflare provisioning, Access verification and model-license/inference smoke tests when configured access exists
+- [x] Decide internal, invite-only passkey authentication with no passwords, email identities, OTP or social login; document [transition and recovery contract](AUTHENTICATION.md)
+- [ ] Add D1 membership/credential/challenge/session migrations and email-free contracts while preserving all member ids and record ownership
+- [ ] Implement verified WebAuthn ceremonies, private enrollment, revocable sessions, backup passkeys and administrator/operator recovery
+- [ ] Build passkey sign-in, enrollment and credential/member management; retain privacy and session-clearing behavior
+- [ ] Replace Access/email runtime, deployment configuration and local authentication workflow together; verify rejection cases, browser flows and real phone/PWA passkeys before cutover
+- [ ] Complete live Cloudflare deployment, passkey verification and model-license/inference smoke tests after the authentication transition
 - [x] Add coarse family-capacity guidance before storage writes reach their limit
 - [x] Evaluate server pagination, archival and refresh payload reduction before lifting family data limits
 - [ ] Validate D1 backup restore in an isolated database when account access exists
@@ -44,8 +51,10 @@ Previous local checkpoint, observed 2026-10-07: `npm run check` passes **363 uni
 
 Earlier pushed checkpoints `1d0bc1a` (259 unit checks / 42 browser checks) and `bb1d232` (300 / 45) both passed GitHub Actions with fresh dependencies and managed Chromium. Isolated launcher smoke tests verified startup, authenticated API access, occupied-port handling, and SIGINT/SIGTERM cleanup. Independent print review verified a nine-page recipe retained final instructions and excluded family/draft content. Dependency audit reported zero known vulnerabilities at the initial checkpoint; package versions have not changed since. Real Access and Workers AI calls have not run.
 
-## External blockers
-Rechecked on 2026-10-08 after the user enabled `CLOUDFLARE_API_TOKEN`: the token and account ID are available, and an authenticated `wrangler d1 list --json` succeeded. The local DB binding now identifies the existing `hearth-family-db` database; no remote schema or data was changed. `npm run deploy:preflight` still reports missing `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `APP_ORIGIN`, `FAMILY_MEMBERS`, and the Access-protected hostname route. Live Access, inference and isolated restore remain unverified. A bounded independent Astra review after the capacity and conditional-refresh milestones found no additional actionable local gap in the required flows or deployment/restore preparation. Recurring discovery remains ongoing; deployment requires the remaining external configuration above. Keep production fail-closed.
+## Transition status and external prerequisites
+On 2026-10-08 the user replaced the Access plan with internal passkey-only authentication. This creates actionable local implementation work; missing Access settings and email allowlists are no longer prerequisites to pursue. The existing preflight still reports them because its replacement has not been implemented. Do not bypass those checks to deploy the current code.
+
+The Cloudflare token and account ID are available, and authenticated D1 discovery succeeded. The local DB binding identifies the existing `hearth-family-db`; no remote schema or data was changed. Production still needs a stable HTTPS hostname/route and RP ID, operator-authorized initial administrator enrollment, verified passkey implementation, real-device checks, inference/license verification and an isolated restore rehearsal. Earlier independent review and test evidence apply to the pre-transition implementation only. No passkey implementation, live authentication or inference success is claimed.
 
 ## Product decisions
-Working name: Hearth. One family per deployment; no public signup. Cloudflare Access authenticates family members; application also checks an explicit allowlist. Family timezone configurable. Mood entries private unless shared. Daily answers record an immutable pair and reveal only when both partners in that currently active pair have answered; separate profile consent releases a preference to the whole family. Larger households require an explicit pair; legacy answers remain author-only. Modules can be disabled without deleting data. AI produces drafts for human review. Demo data is fictional and memory-only. Offline storage contains only the public shell, never private family records.
+Working name: Hearth. One family per deployment; no public signup. Internal passkeys are the sole planned authentication method, with private enrollment and permanent member ids; no passwords, email addresses, OTP or social-login fallback. Family timezone configurable. Mood entries private unless shared. Daily answers record an immutable pair and reveal only when both partners in that currently active pair have answered; separate profile consent releases a preference to the whole family. Larger households require an explicit pair; legacy answers remain author-only. Modules can be disabled without deleting data. AI produces drafts for human review. Demo data is fictional and memory-only. Offline storage contains only the public shell, never private family records.

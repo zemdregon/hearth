@@ -31,4 +31,4 @@ The latest verified local checkpoint passes 363 unit/API/deployment/PWA/launcher
 
 ## Production
 
-See [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), and [roadmap](docs/ROADMAP.md). The repository deliberately has no credentials or real family identities. Production authentication verifies Cloudflare Access tokens and an explicit family allowlist. Missing configuration fails closed.
+See [deployment](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), and [roadmap](docs/ROADMAP.md). The repository deliberately has no credentials or real family identities. The accepted [authentication transition](docs/AUTHENTICATION.md) replaces Access with internal, invite-only passkeys: no passwords or email identities. This is planned, not implemented; current production authentication still verifies Access tokens and an explicit family allowlist and fails closed on missing configuration.

@@ -1,25 +1,31 @@
 # Cloudflare deployment
 
-## Prerequisites
+## Authentication transition — deployment on hold
 
-Use a Cloudflare account with Workers, D1, Workers AI and Zero Trust Access enabled, an API token scoped to the intended account, and a hostname you control. The current environment has no configured Cloudflare credentials or family identity list, so live deployment cannot be verified yet.
+The accepted deployment target uses internal passkey-only authentication, not Cloudflare Access. No email identity provider, password, OTP or public signup is part of the new plan. Follow [AUTHENTICATION.md](AUTHENTICATION.md) for the implementation and cutover gates. The current Worker and deployment scripts still require the old Access configuration; do not weaken or bypass them to publish an unfinished replacement.
 
-1. Create a D1 database: `npx wrangler d1 create hearth-family`. Replace the placeholder `database_id` in `wrangler.jsonc` with its returned id.
-2. Configure the production hostname as a Worker custom domain or route in `wrangler.jsonc`. Keep `workers_dev: false` so an alternate public hostname cannot bypass Access.
-3. Create a self-hosted Cloudflare Access application protecting the **entire hostname**, with an allow policy containing only your family's exact email addresses. Enable email one-time PIN or your chosen identity provider. Avoid public bypass policies.
-4. Record the Access team domain and application audience. Prepare `FAMILY_MEMBERS` as an array of `{id,name,email,role,color}`. Use stable ids; email values must exactly match signed Access identities. Include one or more administrators. Do not reuse the `.test` development identities.
+Cloudflare Workers, D1 and Workers AI remain the hosting stack. Token/account configuration and read-only D1 access were verified on 2026-10-08; `wrangler.jsonc` identifies the existing `hearth-family-db`. Remote migrations, deployment and inference have not been verified.
+
+Planned release sequence, executable only after the authentication implementation is complete:
+
+1. Select a stable canonical HTTPS hostname and exact `APP_ORIGIN`; configure a matching WebAuthn RP ID and Worker route. Keep `workers_dev: false` and reject unexpected origins. Changing the RP ID later requires an explicit credential migration/re-enrollment plan.
+2. Back up D1 and rehearse restore in isolation. Apply the new authentication migrations after reviewing their preservation of permanent member ids and existing data ownership.
+3. Use the explicit operator bootstrap command to authorize the initial administrator's passkey enrollment. The command and private enrollment UI are planned work, not currently available. Add a second passkey and rehearse recovery before relying on the deployment.
+4. Enroll other members through administrator-issued private invitations. Store membership internally in D1 without email fields. Set the family timezone and question pair using permanent ids.
+5. Run the revised preflight and deployment workflow after its tests pass. It must validate passkey origin/RP configuration and reject production development bypasses, without requiring Access secrets or email-bearing `FAMILY_MEMBERS`. Remove legacy Access configuration only with the verified replacement release.
+6. Verify unauthenticated private API denial, passkey sign-in, enrollment/recovery, session revocation, member isolation and private moods/answers on the actual phones and PWA. Then verify recipe text/photo AI drafts and model licensing in the target account.
 
 Member ids are permanent ownership keys. Never assign a departed member's id to a different person: doing so grants that identity the former member's private records. Removing a member revokes application access but preserves their data; their shared records remain available and private records remain private.
-5. Set `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `APP_ORIGIN` and `FAMILY_MEMBERS` in the deployment process environment. Do not put them in commits or command history. Set `FAMILY_TIMEZONE` in Worker vars to your IANA timezone. APP_ORIGIN is the exact HTTPS origin, without trailing slash.
-6. Optionally set `FAMILY_QUESTION_PAIR` in the deployment environment to a JSON pair of stable member ids, for example `["alex","sam"]`, or JSON `null` to disable participation. If omitted, a household with exactly two members is paired automatically; households of any other size remain unpaired. See the pairing rules below.
-7. Run `npm run deploy`. Preflight checks required settings; the script runs checks, applies migrations to the configured database, writes application configuration as Worker secrets through stdin, and deploys the Worker. The script explicitly pins `DEV_AUTH=false` to clear any stale development secret. Do not configure `DEV_AUTH` or secret-based Access/family settings, including `FAMILY_QUESTION_PAIR`, in production vars.
-8. Verify unauthenticated requests challenge for Access, unrelated identities are rejected, family members can sign in, private moods remain private, daily answers reveal only to the configured pair unless explicitly shared on profiles, and recipe text/photo AI imports return drafts. Test on the actual phones before relying on camera/PWA installation.
+
+Keep account tokens and enrollment authorizations out of commits, command history and logs. The current `npm run deploy` applies remote migrations and publishes the Worker; it is not a passkey deployment command yet.
 
 Workers AI calls require a live binding and may incur account usage charges. JSON-LD extraction and manual recipe entry avoid unnecessary model calls. Set Cloudflare account budgets/alerts appropriate for household use. Never log recipe images, access tokens, mood entries or full API bodies in observability.
 
 The vision model `@cf/meta/llama-3.2-11b-vision-instruct` requires account acceptance of Meta's model license before first use. Follow the [official Cloudflare vision setup](https://developers.cloudflare.com/workers-ai/guides/tutorials/llama-vision-tutorial/). Text extraction uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Model availability, license acceptance and actual inference must be verified in the target account. URL import requires public recipe-site and Cloudflare DNS egress. Local tests use controlled fixtures; they do not establish live destination reachability. Verify egress in the target runtime before relying on remote imports.
 
 ## Daily question pairing
+
+The following describes the current configuration. During the auth transition, validate pair ids against internal membership instead of the email-bearing deployment roster; preserve the same privacy semantics and explicit pair across migration.
 
 `FAMILY_QUESTION_PAIR` configures one pair per household. Both ids must be distinct and present in `FAMILY_MEMBERS`; invalid JSON, unknown ids, and arrays of any other size fail closed. The runtime and deployment preflight share the same parser and normalize id order. This setting is optional, but every deployment uploads its resolved pair or `null` as a Worker secret. Removing the environment setting therefore replaces a previously configured secret with the current roster's default instead of retaining stale pairing. Use explicit JSON `null` to keep even a two-member household unpaired. The two-person demo continues to pair automatically.
 
@@ -31,7 +37,7 @@ Older answers without participant ids remain owner-only, including answers previ
 
 Use D1 Time Travel and periodic account-controlled database exports. A user's in-app export intentionally includes only records that identity may view; it is not an administrator bypass or complete disaster-recovery backup. Store full database backups encrypted in a family-controlled location. Verify restore into a separate non-production database before depending on backups.
 
-For a bad code release, use `npx wrangler rollback` to the last known-good Worker version. D1 migrations are separate from Worker rollback: keep migrations additive, take a backup before destructive changes, and restore to a separate database when needed. Never overwrite the live database blindly.
+For a bad code release, use `npx wrangler rollback` only to a version compatible with the restored authentication configuration and schema. D1 migrations are separate from Worker rollback: keep migrations additive, take a backup before destructive changes, and restore to a separate database when needed. Never overwrite the live database blindly. The passkey restore workflow must invalidate restored sessions, invitations and challenges and reconcile credential/member revocations before admitting traffic; rolling back code alone must not resurrect access.
 
 ## Resource boundaries
 
