@@ -2,6 +2,16 @@
 
 Decision, 2026-10-08: replace Cloudflare Access with authentication owned by Hearth. This is the accepted implementation plan, not implemented behavior. Production code still requires Access until the replacement passes the gates below; do not disable that guard independently.
 
+## Foundation checkpoint
+
+The additive `0003_passkey_foundation.sql` migration defines email-free member, credential, enrollment-grant, challenge, session and audit tables. It creates no members or credentials and does not modify existing records or ownership. Database constraints bind sessions to the credential's member and grant-backed challenges to the grant's member. Lifetime ceilings are five minutes for challenges, one day for grants and thirty days for sessions; actual issuance, idle expiry, cleanup, revocation and authentication are not implemented by these constraints.
+
+`src/shared/members.ts` defines the new email-free identity contract. The existing `User` retains an explicit legacy email extension until runtime cutover; bootstrap, fixtures and current configuration are therefore not yet email-free.
+
+Prepare a private JSON roster and run `npm run auth:roster:check -- --input /path/to/roster.json`. Each entry has `id`, `name`, `role`, `color`, and `status` (`pending` or `suspended`). Example fictional entry: `{"id":"alex","name":"Alex","role":"admin","color":"#38634A","status":"pending"}`. The file contains an array of 1–20 entries, including a pending administrator. It rejects email/credential fields, active accounts, duplicate ids and oversized input. The check is offline, prints counts only, and never changes a database or issues enrollment authorization.
+
+This is shape validation, not ownership verification or a working import command. Before a future import, review every historical id in record owners, answer participants, task assignees and habit owners against the intended person; retain departed identities as suspended and never infer identity from a name. The operator-reviewed import, passkey handlers, sessions and UI remain pending.
+
 ## Product contract
 
 Passkeys are the only member authentication method. No passwords, email addresses, email links, email/SMS codes, phone-number identities, social login, or recovery codes that sign someone in. No public signup. Members have a permanent opaque id, display name, role, color and active status. Names are labels, not proof of identity. Remove email fields from member configuration, shared types, UI, fixtures and exports during implementation.

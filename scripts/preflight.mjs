@@ -14,7 +14,7 @@ export function preflight(environment = process.env) {
   if (result.deployment) {
     try {
       const migrations = readdirSync(resolve(dirname(configPath), result.deployment.migrationsDirectory));
-      if (!migrations.includes('0001_initial.sql') || !migrations.includes('0002_storage_budget.sql')) throw new Error('Missing schema');
+      if (!['0001_initial.sql', '0002_storage_budget.sql', '0003_passkey_foundation.sql'].every(name => migrations.includes(name))) throw new Error('Missing schema');
     } catch { return { problems: ['The DB migrations directory must contain all Hearth schema migrations.'] }; }
   }
   return result;

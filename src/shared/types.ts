@@ -1,6 +1,9 @@
+import type { MemberIdentity } from './members';
+
 export const moduleIds = ['recipes', 'tasks', 'notes', 'streaks', 'events', 'moods', 'questions', 'profiles', 'goals'] as const;
 export type ModuleId = typeof moduleIds[number];
-export type User = { id: string; name: string; email: string; role: 'admin' | 'member'; color: string };
+// Transitional Access identity; remove this email extension at the verified auth cutover.
+export type User = MemberIdentity & { email: string };
 export type Ingredient = { name: string; quantity: number | null; quantityMax?: number; unit: string; note?: string };
 export type Recipe = { title: string; description: string; servings: number; prepMinutes: number; cookMinutes: number; ingredients: Ingredient[]; steps: string[]; tags: string[]; sourceUrl?: string; favorite: boolean };
 export type Task = { title: string; done: boolean; assigneeId?: string; dueDate?: string };
