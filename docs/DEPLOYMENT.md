@@ -17,7 +17,7 @@ Member ids are permanent ownership keys. Never assign a departed member's id to 
 
 Workers AI calls require a live binding and may incur account usage charges. JSON-LD extraction and manual recipe entry avoid unnecessary model calls. Set Cloudflare account budgets/alerts appropriate for household use. Never log recipe images, access tokens, mood entries or full API bodies in observability.
 
-The vision model `@cf/meta/llama-3.2-11b-vision-instruct` requires account acceptance of Meta's model license before first use. Follow the [official Cloudflare vision setup](https://developers.cloudflare.com/workers-ai/guides/tutorials/llama-vision-tutorial/). Text extraction uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Model availability, license acceptance and actual inference must be verified in the target account. URL import also needs public recipe-site and Cloudflare DNS egress; the current development workspace only permits configured destinations, so arbitrary remote imports are tested with controlled fixtures locally.
+The vision model `@cf/meta/llama-3.2-11b-vision-instruct` requires account acceptance of Meta's model license before first use. Follow the [official Cloudflare vision setup](https://developers.cloudflare.com/workers-ai/guides/tutorials/llama-vision-tutorial/). Text extraction uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Model availability, license acceptance and actual inference must be verified in the target account. URL import requires public recipe-site and Cloudflare DNS egress. Local tests use controlled fixtures; they do not establish live destination reachability. Verify egress in the target runtime before relying on remote imports.
 
 ## Daily question pairing
 
@@ -35,7 +35,7 @@ For a bad code release, use `npx wrangler rollback` to the last known-good Worke
 
 ## Resource boundaries
 
-The current release loads the family collection together. Atomic database triggers limit it to 10,000 records and 8 MiB of UTF-8 record data, including private and disabled-module data. Individual records are limited to 32 KiB. Delete or shrink existing records to recover capacity; nothing is silently discarded. Pagination and archival are the next step before raising these bounds. Apply both migrations before starting the updated Worker.
+The current release loads the family collection together. Conditional refresh avoids sending unchanged response bodies but still reads and processes the full collection. Atomic database triggers limit it to 10,000 records and 8 MiB of UTF-8 record data, including private and disabled-module data. Individual records are limited to 32 KiB. Delete or shrink existing records to recover capacity; nothing is silently discarded. Server pagination and bounded export measurements are prerequisites for raising these bounds; archival remains a separate, reversible product capability to evaluate. See the [scaling evaluation](PERFORMANCE.md) for constraints and measured limits. Apply both migrations before starting the updated Worker.
 
 Each member has limits of 300 requests per minute, 240 writes per hour, 10 recipe imports per hour and 10 exports per hour. The family has a 40-import daily limit. These limits reduce accidental usage spikes; they are not a substitute for Cloudflare account billing controls. Recipe source pages are bounded to 1 MiB and input images to 4 MiB.
 
