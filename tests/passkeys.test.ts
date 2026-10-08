@@ -78,11 +78,12 @@ function authenticator() {
   const publicKey = isoCBOR.encode(new Map<number, number | Uint8Array>([[1, 2], [3, -7], [-1, 1], [-2, Buffer.from(jwk.x!, 'base64url')], [-3, Buffer.from(jwk.y!, 'base64url')]]));
   return {
     id: b64(id), publicKey,
-    register(challenge: string, changes: { origin?: string; rpID?: string; flags?: number; crossOrigin?: boolean } = {}) {
+    register(challenge: string, changes: { origin?: string; rpID?: string; flags?: number; crossOrigin?: boolean; attestation?: 'packed' } = {}) {
       const clientDataJSON = Buffer.from(JSON.stringify({ type: 'webauthn.create', challenge, origin: changes.origin || origin, crossOrigin: changes.crossOrigin || false }));
       const credentialLength = Buffer.alloc(2); credentialLength.writeUInt16BE(id.length);
       const authData = Buffer.concat([digest(changes.rpID || rpID), Buffer.from([changes.flags ?? 0x45]), Buffer.alloc(4), Buffer.alloc(16), credentialLength, id, publicKey]);
-      const attestation = isoCBOR.encode(new Map<string, string | Uint8Array | Map<string, never>>([['fmt', 'none'], ['authData', authData], ['attStmt', new Map()]]));
+      const attStmt = changes.attestation === 'packed' ? new Map<string, number | Uint8Array>([['alg', -7], ['sig', sign('sha256', Buffer.concat([authData, digest(clientDataJSON)]), pair.privateKey)]]) : new Map<string, number | Uint8Array>();
+      const attestation = isoCBOR.encode(new Map<string, string | Uint8Array | Map<string, number | Uint8Array>>([['fmt', changes.attestation || 'none'], ['authData', authData], ['attStmt', attStmt]]));
       return { id: b64(id), rawId: b64(id), type: 'public-key', response: { clientDataJSON: b64(clientDataJSON), attestationObject: b64(attestation), transports: ['internal'] }, clientExtensionResults: { credProps: { rk: true } } };
     },
     assertion(challenge: string, userHandle: string, changes: { origin?: string; rpID?: string; flags?: number; counter?: number; challenge?: string; crossOrigin?: boolean; signature?: string } = {}) {
@@ -349,13 +350,74 @@ describe('fresh verification, administration and revocation races', () => {
     expect(recovery.status, await recovery.clone().text()).toBe(200);
     const token = (await recovery.json() as { token: string }).token;
     expect(sqlite.prepare("SELECT status,user_handle FROM auth_members WHERE id='sam'").get()).toEqual({ status: 'pending', user_handle: ordinary.handle });
-    expect(sqlite.prepare('SELECT revoked_at FROM auth_credentials WHERE id=?').get(oldId)!.revoked_at).toBe(timestamp);
+    expect(sqlite.prepare('SELECT id FROM auth_credentials WHERE id=?').get(oldId)).toBeUndefined();
+    expect(sqlite.prepare('SELECT member_id,retired_at FROM auth_credential_tombstones WHERE id_hash=?').get(b64(digest(oldId)))).toEqual({ member_id: 'sam', retired_at: timestamp });
     await expect(ordinary.browser.identity()).rejects.toMatchObject({ status: 401 });
     expect(sqlite.prepare('SELECT id FROM auth_challenges WHERE id=?').get(pending.ceremonyId)).toBeUndefined();
     const newKey = authenticator(); const recovered = new Browser();
     await enroll(recovered, newKey, token); await login(recovered, newKey, ordinary.handle);
     expect((await recovered.identity()).id).toBe('sam');
     expect(sqlite.prepare("SELECT event FROM auth_audit WHERE event='member.recovery_authorized'").all()).toHaveLength(1);
+  });
+  it('recovers a 100-credential history with a new passkey while permanently blocking retired IDs', async () => {
+    const admin = await active(); const ordinary = await active('sam', 'member');
+    for (let index = 0; index < 99; index++) sqlite.prepare("INSERT INTO auth_credentials(id,member_id,public_key,backup_eligible,backed_up,created_at,revoked_at) VALUES (?,'sam','cHVibGlj',0,0,?,?)").run(`retired_${index}`, timestamp, timestamp);
+    sqlite.prepare("INSERT INTO records(id,kind,owner_id,data,created_at,updated_at) VALUES ('preserve','note','sam','{\"text\":\"Keep this history\"}','before','before')").run();
+    const before = sqlite.prepare('SELECT * FROM records').all();
+    const budget = sqlite.prepare('SELECT * FROM family_storage').get();
+    expect((await admin.browser.request('/members/sam/suspend', {})).status).toBe(200);
+    expect(sqlite.prepare("SELECT count(*) AS n FROM auth_credentials WHERE member_id='sam'").get()!.n).toBe(100);
+    expect(sqlite.prepare('SELECT count(*) AS n FROM auth_credential_tombstones').get()!.n).toBe(0);
+    const recovery = await admin.browser.request('/members/sam/recover', {});
+    expect(recovery.status, await recovery.clone().text()).toBe(200);
+    const token = (await recovery.json() as { token: string }).token;
+    expect(sqlite.prepare("SELECT count(*) AS n FROM auth_credentials WHERE member_id='sam'").get()!.n).toBe(0);
+    expect(sqlite.prepare("SELECT count(*) AS n FROM auth_credential_tombstones WHERE member_id='sam'").get()!.n).toBe(100);
+    expect(sqlite.prepare('SELECT member_id,retired_at FROM auth_credential_tombstones WHERE id_hash=?').get(b64(digest(ordinary.key.id)))).toEqual({ member_id: 'sam', retired_at: timestamp });
+    expect(sqlite.prepare("SELECT user_handle FROM auth_members WHERE id='sam'").get()!.user_handle).toBe(ordinary.handle);
+    const recovered = new Browser();
+    const oldRegistration = await options(recovered, '/register/options', { token });
+    expect((await recovered.request('/register/verify', { ceremonyId: oldRegistration.ceremonyId, response: ordinary.key.register(oldRegistration.options.challenge, { attestation: 'packed' }) })).status).toBe(409);
+    expect(sqlite.prepare('SELECT consumed_at FROM auth_enrollment_grants WHERE token_hash=?').get(b64(digest(token)))!.consumed_at).toBe(null);
+    const newKey = authenticator();
+    await enroll(recovered, newKey, token); await login(recovered, newKey, ordinary.handle);
+    expect((await recovered.identity()).id).toBe('sam');
+    const oldAssertion = await options(recovered, '/login/options');
+    expect((await recovered.request('/login/verify', { ceremonyId: oldAssertion.ceremonyId, response: ordinary.key.assertion(oldAssertion.options.challenge, ordinary.handle) })).status).toBe(401);
+    member('new_person', 'member'); const otherToken = grant('new_person');
+    const otherBrowser = new Browser(); const otherCeremony = await options(otherBrowser, '/register/options', { token: otherToken });
+    expect((await otherBrowser.request('/register/verify', { ceremonyId: otherCeremony.ceremonyId, response: ordinary.key.register(otherCeremony.options.challenge, { attestation: 'packed' }) })).status).toBe(409);
+    expect(sqlite.prepare('SELECT * FROM records').all()).toEqual(before);
+    expect(sqlite.prepare('SELECT * FROM family_storage').get()).toEqual(budget);
+    expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+  it('rolls back registration when its credential ID is retired after verification but before commit', async () => {
+    const browser = new Browser(); const key = authenticator(); member(); const token = grant();
+    const ceremony = await options(browser, '/register/options', { token });
+    beforeBatch = sql => {
+      if (sql.some(text => text.startsWith('UPDATE auth_challenges SET consumed_at'))) {
+        beforeBatch = undefined;
+        sqlite.prepare("INSERT INTO auth_credential_tombstones(id_hash,member_id,retired_at) VALUES (?,'alex',?)").run(b64(digest(key.id)), timestamp);
+      }
+    };
+    expect((await browser.request('/register/verify', { ceremonyId: ceremony.ceremonyId, response: key.register(ceremony.options.challenge) })).status).toBe(409);
+    expect(sqlite.prepare('SELECT count(*) AS n FROM auth_credentials').get()!.n).toBe(0);
+    expect(sqlite.prepare('SELECT status FROM auth_members').get()!.status).toBe('pending');
+    expect(sqlite.prepare('SELECT consumed_at FROM auth_enrollment_grants').get()!.consumed_at).toBe(null);
+    expect(sqlite.prepare('SELECT consumed_at FROM auth_challenges WHERE id=?').get(ceremony.ceremonyId)!.consumed_at).toBe(null);
+  });
+  it('does not delete a credential added concurrently with recovery snapshot hashing', async () => {
+    const admin = await active(); const ordinary = await active('sam', 'member');
+    beforeBatch = sql => {
+      if (sql.some(text => text.startsWith('INSERT OR IGNORE INTO auth_credential_tombstones'))) {
+        beforeBatch = undefined;
+        sqlite.prepare("INSERT INTO auth_credentials(id,member_id,public_key,backup_eligible,backed_up,created_at) VALUES ('new_concurrent','sam','cHVibGlj',0,0,?)").run(timestamp);
+      }
+    };
+    expect((await admin.browser.request('/members/sam/recover', {})).status).toBe(409);
+    expect(sqlite.prepare("SELECT count(*) AS n FROM auth_credentials WHERE member_id='sam' AND revoked_at IS NULL").get()!.n).toBe(2);
+    expect(sqlite.prepare('SELECT count(*) AS n FROM auth_credential_tombstones').get()!.n).toBe(0);
+    expect((await ordinary.browser.identity()).id).toBe('sam');
   });
   it('creates an email-free pending invitation, revokes it, and rejects reuse of historical owners', async () => {
     const { browser } = await active();

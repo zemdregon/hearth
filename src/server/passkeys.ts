@@ -276,7 +276,7 @@ passkeyRoutes.post('/register/verify', async c => {
   const check = random(); const capacity = random();
   const checks = [check, capacity];
   const statements = consumeChallenge(db, challenge, timestamp, check);
-  statements.push(guard(db, capacity, '(SELECT count(*) FROM auth_credentials WHERE member_id=? AND revoked_at IS NULL)<10 AND (SELECT count(*) FROM auth_credentials WHERE member_id=?)<100', [challenge.member_id, challenge.member_id]));
+  statements.push(guard(db, capacity, '(SELECT count(*) FROM auth_credentials WHERE member_id=? AND revoked_at IS NULL)<10 AND (SELECT count(*) FROM auth_credentials WHERE member_id=?)<100 AND NOT EXISTS (SELECT 1 FROM auth_credential_tombstones WHERE id_hash=?)', [challenge.member_id, challenge.member_id, await hash(info.credential.id)]));
   if (challenge.grant_hash) {
     const grantCheck = random(); checks.push(grantCheck);
     statements.push(stmt(db, "UPDATE auth_enrollment_grants SET consumed_at=? WHERE token_hash=? AND member_id=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>? AND EXISTS (SELECT 1 FROM auth_members WHERE id=? AND status='pending')", timestamp, challenge.grant_hash, challenge.member_id, timestamp, challenge.member_id), guard(db, grantCheck, 'changes()=1'));
@@ -351,10 +351,31 @@ async function changeMember(c: Ctx, recovery: boolean) {
   const target = parsed.data;
   const session = await sessionFor(c.req.raw, c.env, true, true);
   const db = c.env.DB; const timestamp = now(); const check = random(); const last = random(); const token = recovery ? random() : null;
-  const statements = [sessionGuard(db, check, session, timestamp, true), guard(db, last, "EXISTS (SELECT 1 FROM auth_members WHERE id=?) AND NOT EXISTS (SELECT 1 FROM auth_members WHERE id=? AND status='active' AND role='admin' AND (SELECT count(*) FROM auth_members WHERE status='active' AND role='admin')<=1)", [target, target]), stmt(db, 'DELETE FROM auth_challenges WHERE member_id=?', target), stmt(db, 'UPDATE auth_credentials SET revoked_at=? WHERE member_id=? AND revoked_at IS NULL', timestamp, target), stmt(db, 'UPDATE auth_sessions SET revoked_at=? WHERE member_id=? AND revoked_at IS NULL', timestamp, target), stmt(db, 'UPDATE auth_enrollment_grants SET revoked_at=? WHERE member_id=? AND revoked_at IS NULL', timestamp, target), stmt(db, 'UPDATE auth_members SET status=?,updated_at=? WHERE id=?', recovery ? 'pending' : 'suspended', timestamp, target)];
+  const checks = [check, last];
+  const statements = [sessionGuard(db, check, session, timestamp, true), guard(db, last, "EXISTS (SELECT 1 FROM auth_members WHERE id=?) AND NOT EXISTS (SELECT 1 FROM auth_members WHERE id=? AND status='active' AND role='admin' AND (SELECT count(*) FROM auth_members WHERE status='active' AND role='admin')<=1)", [target, target])];
+  if (recovery) {
+    const rows = (await stmt(db, 'SELECT id,created_at,revoked_at FROM auth_credentials WHERE member_id=? ORDER BY id LIMIT 101', target).all<{ id: string; created_at: number; revoked_at: number | null }>()).results;
+    if (rows.length > 100) throw new ApiError(409, 'This member needs operator recovery for its credential history.');
+    const snapshot = JSON.stringify(await Promise.all(rows.map(async row => ({ ...row, id_hash: await hash(row.id), retired_at: row.revoked_at ?? Math.max(row.created_at, timestamp) }))));
+    const unchanged = random(); checks.push(unchanged);
+    // The hash work happens outside D1. Recheck the entire selected credential
+    // set before archiving so a concurrent registration or revocation rolls back.
+    statements.push(guard(db, unchanged, `(SELECT count(*) FROM auth_credentials WHERE member_id=?)=? AND NOT EXISTS (SELECT 1 FROM auth_credentials k WHERE k.member_id=? AND NOT EXISTS (SELECT 1 FROM json_each(?) old WHERE json_extract(old.value,'$.id')=k.id AND json_extract(old.value,'$.created_at')=k.created_at AND json_extract(old.value,'$.revoked_at') IS k.revoked_at)) AND NOT EXISTS (SELECT 1 FROM auth_credential_tombstones t JOIN json_each(?) old ON t.id_hash=json_extract(old.value,'$.id_hash') WHERE t.member_id<>?)`, [target, rows.length, target, snapshot, snapshot, target]));
+    statements.push(stmt(db, "INSERT OR IGNORE INTO auth_credential_tombstones(id_hash,member_id,retired_at) SELECT json_extract(value,'$.id_hash'),?,json_extract(value,'$.retired_at') FROM json_each(?)", target, snapshot));
+    // Challenge -> session -> credential deletion order preserves every FK.
+    statements.push(stmt(db, 'DELETE FROM auth_challenges WHERE member_id=? OR session_hash IN (SELECT token_hash FROM auth_sessions WHERE member_id=?)', target, target));
+    statements.push(stmt(db, 'DELETE FROM auth_sessions WHERE member_id=?', target));
+    statements.push(stmt(db, 'DELETE FROM auth_credentials WHERE member_id=?', target));
+  } else {
+    statements.push(stmt(db, 'DELETE FROM auth_challenges WHERE member_id=?', target));
+    statements.push(stmt(db, 'UPDATE auth_credentials SET revoked_at=MAX(created_at,?) WHERE member_id=? AND revoked_at IS NULL', timestamp, target));
+    statements.push(stmt(db, 'UPDATE auth_sessions SET revoked_at=MAX(created_at,?) WHERE member_id=? AND revoked_at IS NULL', timestamp, target));
+  }
+  statements.push(stmt(db, 'UPDATE auth_enrollment_grants SET revoked_at=MAX(created_at,?) WHERE member_id=? AND revoked_at IS NULL', timestamp, target));
+  statements.push(stmt(db, 'UPDATE auth_members SET status=?,updated_at=MAX(updated_at,?) WHERE id=?', recovery ? 'pending' : 'suspended', timestamp, target));
   if (token) statements.push(stmt(db, "INSERT INTO auth_enrollment_grants(token_hash,member_id,purpose,created_at,expires_at) VALUES (?,?,'recover',?,?)", await hash(token), target, timestamp, timestamp + GRANT_TTL));
   statements.push(audit(db, session.id, target, recovery ? 'member.recovery_authorized' : 'member.suspended', timestamp));
-  await atomic(db, statements, [check, last]);
+  await atomic(db, statements, checks);
   if (session.id === target) setCookie(c, SESSION_COOKIE, '', 0);
   return c.json(token ? { token, expiresAt: timestamp + GRANT_TTL } : { ok: true });
 }

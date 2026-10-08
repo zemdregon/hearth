@@ -25,9 +25,9 @@ Local daily questions pair an active two-member household automatically. For dep
 
 ## Validation
 
-`npm run check` runs TypeScript, unit/API tests, and the production build. `npm run test:e2e` runs browser tests with Chromium (`CHROMIUM_PATH` may override `/usr/bin/chromium`). Production deployment and live AI inference require configured Cloudflare access; passing local tests does not imply either was performed.
+`npm run check` runs TypeScript, unit/API tests, and the production build. `npm run test:restore` separately rehearses isolated local D1 export, restore and passkey recovery with fictional temporary data; see the [restore procedure](docs/DEPLOYMENT.md#restore-rehearsal-and-authentication-lock). `npm run test:e2e` runs browser tests with Chromium (`CHROMIUM_PATH` may override `/usr/bin/chromium`). Production deployment and live AI inference require configured Cloudflare access; passing local tests does not imply either was performed.
 
-The passkey checkpoint passes 511 unit/API/deployment/PWA/launcher tests, with real Worker/D1 and browser verification tracked in the roadmap. Coverage includes passkey ceremonies, operator recovery, explicit couples privacy, large collections, accessibility and offline updates. See the roadmap for checkpoint details and [performance evidence](docs/PERFORMANCE.md). The patched `sharp` override keeps Wrangler's local development image dependency current; reassess the override when Wrangler incorporates that patch.
+The passkey checkpoint passes 556 unit/API/deployment/PWA/launcher tests, with real Worker/D1 and browser verification tracked in the roadmap. Coverage includes passkey ceremonies, operator recovery, explicit couples privacy, large collections, accessibility and offline updates. See the roadmap for checkpoint details and [performance evidence](docs/PERFORMANCE.md). The patched `sharp` override keeps Wrangler's local development image dependency current; reassess the override when Wrangler incorporates that patch.
 
 ## Production
 
