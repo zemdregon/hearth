@@ -34,7 +34,7 @@ These milestones began with the pre-transition implementation. The passkey repla
 
 ## Next roadmap
 - [ ] Add a family inventory tracker deeply integrated with recipe ingredients, scaled servings and shopping shortages
-- [ ] Research and define ingredient identity, unit conventions, exact compatible conversions, ingredient-specific density/portion evidence and sufficient/insufficient/unknown availability results
+- [x] Complete Sonnet research into ingredient identity, measurement conventions, density/portion evidence and sufficient/insufficient/unknown results; reviewed [inventory research and staged plan](INVENTORY_RESEARCH.md). Runtime implementation and D1 transaction proofs remain pending.
 - [ ] Implement reviewed inventory quantities and reversible consumption with concurrency protection; never silently treat uncertain measurements as sufficient stock
 - [x] Decide internal, invite-only passkey authentication with no passwords, email identities, OTP or social login; document [transition and recovery contract](AUTHENTICATION.md)
 - [x] Add additive D1 authentication schema, email-free member contracts and offline proposed-roster validation without altering existing ownership
