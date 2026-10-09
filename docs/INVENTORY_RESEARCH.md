@@ -729,6 +729,8 @@ Open questions for the owner (defaults in §16 stand until answered): household 
 
 ## 20. Verification status of this document
 
+Implementation follow-up (2026-10-09): the pure quantity/conversion/availability foundation now lives in `src/shared/inventory`, with 70 focused tests and its caller contract in [CONTRACTS.md](CONTRACTS.md). The isolated local transaction spike is executable with `npm run test:inventory:d1`; see [the roadmap evidence](ROADMAP.md#verification-evidence). It verifies the narrow SQL/transaction primitives on local Wrangler D1, not a production inventory schema, API, migration or remote database. Package parsing, alias matching, storage validation and user-facing integration remain pending. The research-stage status below records the original research run.
+
 This research changed documentation only. No tests, typecheck, build or deployment were run because no code changed. Verified-by-execution items: the five USDA SR Legacy observations in §8.1 (public `DEMO_KEY` API, one request set, then rate-limited with HTTP 429), and the unit arithmetic in §7.2 and §17 (hand-computed; golden values should be re-derived by tests in §18.1). Everything else is source reading or design, as labelled.
 
 Root review (2026-10-09): corrected US customary terminology against [UCUM §37](https://ucum.org/ucum#section-US-Volumes); tightened profile ambiguity, outward interval rounding, required unquantified ingredients, package basis, provisional density bounds, idempotency and undo conflicts. These are design requirements, not implemented behavior. The SQL is a sketch requiring a D1 proof; migration numbers must be rebased on the actual next migration at implementation time.
