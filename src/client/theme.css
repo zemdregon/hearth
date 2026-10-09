@@ -1,0 +1,268 @@
+/* Night colors are screen-only: printed recipes retain their original white sheet. */
+@media screen {
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    color: #e8ede4;
+    background: #17211d;
+    --bg: #17211d;
+    --paper: #202c25;
+    --green: #b8d6ac;
+    --green-deep: #d4e7c9;
+    --muted: #b4bfaf;
+    --line: #405044;
+    --terracotta: #e1ac8d;
+    --shadow: 0 4px 18px #00000024;
+    --night-text: #e8ede4;
+    --night-muted: #b4bfaf;
+    --night-soft: #a4b39d;
+    --night-raised: #2b3a2f;
+    --night-input: #17221c;
+    --night-hover: #334735;
+    --night-border: #7e9079;
+    --night-green: #2b3e2e;
+    --night-peach: #3d3028;
+    --night-amber: #3b3525;
+    --night-rose: #3b2b2b;
+    --night-lavender: #343040;
+    --night-gold: #e8cf97;
+    --night-rose-text: #f1b9ac;
+    --night-lavender-text: #cec3e3;
+    --night-on-accent: #1c2c20;
+    --night-focus: #f0d399;
+  }
+
+  html[data-theme="dark"] ::selection { background: #506b48; color: #fff; }
+  html[data-theme="dark"] :is(button, a, input, select, textarea, summary):focus-visible,
+  html[data-theme="dark"] .wellness-page label:has(input:focus-visible),
+  html[data-theme="dark"] .wellness-page button:focus-visible,
+  html[data-theme="dark"] .family-module :is(.family-filters button, .family-person, .family-check):focus-visible {
+    outline-color: var(--night-focus);
+  }
+
+  /* Shared controls, labels and feedback. */
+  html[data-theme="dark"] .button { background: var(--green); color: var(--night-on-accent); }
+  html[data-theme="dark"] .button:hover:not(:disabled) { background: #cee5c3; box-shadow: var(--shadow); }
+  html[data-theme="dark"] .button.secondary { background: var(--night-raised); color: var(--night-text); border-color: var(--night-border); box-shadow: none; }
+  html[data-theme="dark"] .button.secondary:hover:not(:disabled) { background: var(--night-hover); border-color: var(--green); }
+  html[data-theme="dark"] .button.ghost { background: transparent; color: var(--green); }
+  html[data-theme="dark"] .button.ghost:hover:not(:disabled) { background: var(--night-hover); box-shadow: none; }
+  html[data-theme="dark"] .button.danger { background: #923f35; color: #fff6ef; }
+  html[data-theme="dark"] .button.danger:hover:not(:disabled) { background: #a5483c; }
+  html[data-theme="dark"] :is(.icon-button, .recipe-icon-button) { color: var(--night-muted); }
+  html[data-theme="dark"] :is(.icon-button:hover, .recipe-icon-button:hover) { background: var(--night-hover); color: var(--green); }
+  html[data-theme="dark"] :is(.muted, .eyebrow, .field-hint, .section-description, .empty-state, .empty-state p) { color: var(--night-muted); }
+  html[data-theme="dark"] :is(.field > label, .field-wrap > span, .empty-state h3) { color: var(--night-text); }
+  html[data-theme="dark"] .input { background: var(--night-input); color: var(--night-text); border-color: var(--night-border); }
+  html[data-theme="dark"] .input::placeholder { color: var(--night-soft); }
+  html[data-theme="dark"] .input:hover { border-color: var(--green); }
+  html[data-theme="dark"] .input:focus { border-color: var(--night-focus); box-shadow: 0 0 0 3px #f0d39924; outline: 2px solid var(--night-focus); outline-offset: 2px; }
+  html[data-theme="dark"] .field-error { color: var(--night-rose-text); }
+  html[data-theme="dark"] .has-error .input { border-color: var(--night-rose-text); }
+  html[data-theme="dark"] .empty-icon { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .pill { background: var(--night-raised); color: var(--night-text); }
+  html[data-theme="dark"] :is(.pill.green, .sage) { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] :is(.pill.amber, .butter) { background: var(--night-amber); color: var(--night-gold); }
+  html[data-theme="dark"] .peach { background: var(--night-peach); color: var(--terracotta); }
+  html[data-theme="dark"] :is(.pill.rose, .rose) { background: var(--night-rose); color: var(--night-rose-text); }
+  html[data-theme="dark"] .lavender { background: var(--night-lavender); color: var(--night-lavender-text); }
+  html[data-theme="dark"] :is(.inline-notice, .offline-banner, .gate-error, .capacity-notice) { background: var(--night-amber); border-color: #776849; color: var(--night-gold); }
+  html[data-theme="dark"] .gate-error .text-link { color: var(--night-gold); }
+  html[data-theme="dark"] .sync-error { background: var(--night-rose); border-color: #865951; color: var(--night-rose-text); }
+  html[data-theme="dark"] .toast { background: #365039; border: 1px solid #879f7c; color: #f0f5e9; box-shadow: 0 10px 35px #0005; }
+  html[data-theme="dark"] .toast-error { background: #673e34; border-color: #bc8977; }
+  html[data-theme="dark"] .toast > .icon-button { color: #f0f5e9; }
+  html[data-theme="dark"] .toast > .icon-button:hover { background: #ffffff18; color: #fff; }
+
+  /* Navigation and dialogs use the same quiet surfaces on desktop and mobile. */
+  html[data-theme="dark"] :is(.sidebar, .topbar) { background: #1b2720; border-color: var(--line); }
+  html[data-theme="dark"] .sidebar { box-shadow: 8px 0 40px #0002; }
+  html[data-theme="dark"] .family-space-icon { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] :is(.family-space-label > div > span, .family-space-label > svg, .nav-item, .nav-item > svg, .nav-group-label, .sidebar-bloom, .sidebar-bloom p, .sidebar-profile small, .sidebar-profile > svg, .topbar-left > svg, .topbar-home, .breadcrumb-current, .private-badge, .notification-button) { color: var(--night-muted); }
+  html[data-theme="dark"] .sidebar-profile strong { color: var(--night-text); }
+  html[data-theme="dark"] .nav-item:hover { background: var(--night-raised); color: var(--green); }
+  html[data-theme="dark"] .nav-item.active { background: var(--night-green); color: var(--green-deep); }
+  html[data-theme="dark"] .nav-item.active > svg { color: var(--green); }
+  html[data-theme="dark"] .nav-count { background: var(--night-raised); color: var(--night-muted); }
+  html[data-theme="dark"] .nav-item.active .nav-count { background: #3f573a; color: var(--green-deep); }
+  html[data-theme="dark"] .topbar-separator { background: var(--line); }
+  html[data-theme="dark"] .notification-dot { border-color: #1b2720; background: var(--terracotta); }
+  html[data-theme="dark"] .demo-badge { background: var(--night-amber); border-color: #685c41; color: var(--night-gold); }
+  html[data-theme="dark"] .demo-badge > span { background: var(--night-gold); }
+  html[data-theme="dark"] .avatar { border-color: var(--paper); }
+  html[data-theme="dark"] .avatar-stack .avatar { border-color: var(--night-green); }
+  html[data-theme="dark"] .skip-link { color: var(--night-on-accent); }
+  html[data-theme="dark"] .mobile-bottom-nav { background: #1b2720f5; border-color: var(--line); }
+  html[data-theme="dark"] :is(.mobile-bottom-nav > a, .mobile-bottom-nav > button) { color: var(--night-muted); }
+  html[data-theme="dark"] .mobile-bottom-nav .active { color: var(--green-deep); background: var(--night-green); }
+  html[data-theme="dark"] .nav-backdrop { background: #08130db3; }
+  html[data-theme="dark"] .modal { background: var(--paper); color: var(--night-text); border-color: var(--line); box-shadow: 0 25px 100px #0008; }
+  html[data-theme="dark"] .modal::backdrop { background: #07110ccc; }
+  html[data-theme="dark"] :is(.modal-heading, .reminder-item) { border-color: var(--line); }
+  html[data-theme="dark"] :is(.profile-menu-member > div > span, .help-list p, .reminder-item small, .reminder-item > svg, .install-instructions p) { color: var(--night-muted); }
+  html[data-theme="dark"] :is(.profile-menu-member > svg, .help-list > div > svg) { color: var(--green); }
+  html[data-theme="dark"] .reminder-item > span:nth-child(2) { color: var(--night-text); }
+
+  /* The familiar sage, clay and paper accents become deeper evening colors. */
+  html[data-theme="dark"] :is(.dashboard-heading h1, .welcome-copy h2, .dashboard-section-label h2, .glance-copy strong, .card-heading h2, .recipe-preview-title, .dream-card h2, .module-setting h2) { color: var(--green-deep); }
+  html[data-theme="dark"] :is(.dashboard-heading .eyebrow, .dashboard-heading p:not(.eyebrow), .welcome-eyebrow, .welcome-copy > p, .welcome-people > span, .dashboard-section-label .muted, .glance-title, .glance-caption, .glance-card > svg, .heading-with-icon > svg, .card-heading .icon-button, .task-preview-content > span:first-child, .task-due, .dashboard-add, .recipe-preview-meta, .recipe-preview-meta > span, .dream-card > p, .dream-progress > span, .dashboard-footer, .small-mark, .footer-private) { color: var(--night-muted); }
+  html[data-theme="dark"] :is(.card-heading .text-link, .dream-card > .text-link) { color: var(--green); }
+  html[data-theme="dark"] :is(.welcome-card, .dream-card) { background: var(--night-green); border-color: #465740; }
+  html[data-theme="dark"] .tiny-sun { color: var(--night-gold); }
+  html[data-theme="dark"] .question-prompt { background: var(--night-peach); border-color: #5b493b; }
+  html[data-theme="dark"] .question-prompt:hover { background: #47372b; }
+  html[data-theme="dark"] :is(.question-prompt .eyebrow, .question-prompt h2, .question-prompt .text-link, .question-prompt > .question-icon) { color: #e8c4a4; }
+  html[data-theme="dark"] .question-prompt p { color: #d0bda9; }
+  html[data-theme="dark"] .question-flower { color: #604936; }
+  html[data-theme="dark"] .glance-card { background: var(--paper); }
+  html[data-theme="dark"] .glance-card:hover { border-color: var(--night-border); box-shadow: var(--shadow); }
+  html[data-theme="dark"] :is(.task-preview, .dashboard-add) { border-color: var(--line); }
+  html[data-theme="dark"] .task-check { border-color: var(--night-border); }
+  html[data-theme="dark"] .task-check:hover { background: var(--night-green); color: var(--green); border-color: var(--green); }
+  html[data-theme="dark"] .task-due.overdue { color: var(--terracotta); }
+  html[data-theme="dark"] .note-preview { background: var(--night-amber); border-color: #665a3c; box-shadow: var(--shadow); }
+  html[data-theme="dark"] .note-1 { background: var(--night-peach); border-color: #655040; }
+  html[data-theme="dark"] :is(.note-pin, .note-1 .note-pin) { background: #bda97755; }
+  html[data-theme="dark"] :is(.note-preview-text, .note-signature, .note-signature > span, .note-signature > svg) { color: #e2d1a9; }
+  html[data-theme="dark"] :is(.note-1 .note-preview-text, .note-1 .note-signature, .note-1 .note-signature > span, .note-1 .note-signature > svg) { color: #e2c5af; }
+  html[data-theme="dark"] .recipe-preview-art { background: var(--night-amber); }
+  html[data-theme="dark"] .art-1 { background: var(--night-green); }
+  html[data-theme="dark"] .art-2 { background: var(--night-peach); }
+  html[data-theme="dark"] .dream-card > .module-icon { background: #3a4d34; color: var(--green); }
+  html[data-theme="dark"] .dream-card > .eyebrow { color: var(--night-muted); }
+  html[data-theme="dark"] .dream-decoration { color: #506444; }
+  html[data-theme="dark"] .progress-track { background: #4a5b42; }
+  html[data-theme="dark"] .progress-track > span { background: var(--green); }
+  html[data-theme="dark"] .settings-intro { background: var(--night-green); border-color: #465740; color: var(--green); }
+  html[data-theme="dark"] :is(.module-setting p, .module-state, .module-paused .module-state, .settings-utility p, .settings-timezone, .family-capacity > p) { color: var(--night-muted); }
+  html[data-theme="dark"] .family-capacity .capacity-state { color: var(--green); }
+  html[data-theme="dark"] .toggle-switch { background: #42513f; border-color: var(--night-border); }
+  html[data-theme="dark"] .toggle-switch > span { background: #e8ede4; }
+  html[data-theme="dark"] .toggle-switch.on { background: #a9ca9a; border-color: #a9ca9a; }
+  html[data-theme="dark"] .toggle-switch.on > span { background: #233723; }
+  html[data-theme="dark"] .status-dot { background: var(--green); }
+  html[data-theme="dark"] .status-dot.paused { background: #84917f; }
+  html[data-theme="dark"] .module-paused { background: #1b251f; }
+
+  /* Public sign-in and its local illustration are also comfortable at night. */
+  html[data-theme="dark"] .welcome-gate { background: radial-gradient(ellipse at 81% 48%, #374b2e55, transparent 55%); }
+  html[data-theme="dark"] :is(.gate-copy h1, .gate-card h2) { color: var(--green-deep); }
+  html[data-theme="dark"] .gate-copy h1 em { color: var(--terracotta); }
+  html[data-theme="dark"] :is(.gate-copy > .eyebrow, .gate-copy > p, .gate-benefits > span, .gate-card > p, .gate-divider, .gate-demo-note, .gate-private, .gate-footer, .fatal-error p) { color: var(--night-muted); }
+  html[data-theme="dark"] .gate-card { background: var(--paper); border-color: var(--line); box-shadow: 0 15px 60px #0003; }
+  html[data-theme="dark"] :is(.gate-divider:before, .gate-divider:after) { background: var(--line); }
+  html[data-theme="dark"] .loading-dots > span { background: var(--green); }
+  html[data-theme="dark"] .home-illustration [fill="#C2CBAD"] { fill: #435b3b; }
+  html[data-theme="dark"] .home-illustration [fill="#E9DDC4"] { fill: #8e8063; }
+  html[data-theme="dark"] .home-illustration [fill="#E7D6BB"] { fill: #726244; }
+  html[data-theme="dark"] .home-illustration [fill="#FAF5E9"] { fill: #e7cb8a; }
+  html[data-theme="dark"] .home-illustration [fill="#657C61"] { fill: #8d9f78; }
+  html[data-theme="dark"] .home-illustration [stroke="#657C61"] { stroke: #8d9f78; }
+  html[data-theme="dark"] .recipe-drawing [fill="#FFFCF5"] { fill: #b8b59a; }
+
+  /* Tasks, notes, dates, profiles and shared goals. */
+  html[data-theme="dark"] .family-module.stack { --family-green: var(--green); --family-muted: var(--night-muted); --family-line: var(--line); }
+  html[data-theme="dark"] .family-module .family-error { background: var(--night-rose); color: var(--night-rose-text); border-color: #865951; }
+  html[data-theme="dark"] .family-module .family-actions .button { color: var(--night-muted); }
+  html[data-theme="dark"] .family-module .family-actions .button:hover { color: var(--green); background: var(--night-hover); }
+  html[data-theme="dark"] .family-module .family-filters { background: var(--night-input); }
+  html[data-theme="dark"] .family-module .family-filters button { color: var(--night-muted); }
+  html[data-theme="dark"] .family-module .family-filters button.is-active { background: var(--night-raised); color: var(--green-deep); box-shadow: var(--shadow); }
+  html[data-theme="dark"] .family-module .family-filters button span { background: #3a4e35; color: var(--green); }
+  html[data-theme="dark"] .family-module :is(.family-stat-number, .family-check:hover, .family-countdown strong) { color: var(--green); }
+  html[data-theme="dark"] .family-module :is(.family-stat > svg, .family-check, .family-section-line h2 svg, .family-profile-empty) { color: var(--night-soft); }
+  html[data-theme="dark"] .family-module .family-check[aria-pressed="true"] { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .family-module :is(.family-task.is-complete h2, .family-section-line > span, .family-note-date, .family-event-hero .eyebrow, .family-event-hero p, .family-countdown span, .family-event-date, .family-event-description, .family-goal-description, .family-person small, .family-profile-bio, .family-profile-empty p, .family-suggestions li, .family-preference-label, .family-preference time, .family-goals-intro p, .family-progress-label, .family-progress-label strong, .family-milestones label, .family-milestones .is-done span, .family-milestone-input > span) { color: var(--night-muted); }
+  html[data-theme="dark"] .family-module .family-note-today { background: var(--night-amber); border-color: #665a3c; }
+  html[data-theme="dark"] .family-module .family-note-featured + .family-note-featured { border-color: #665a3c; }
+  html[data-theme="dark"] .family-module :is(.family-note-today .family-section-line h2 svg, .family-note-quote, .family-note-blank > svg, .family-profile-section h3 svg, .family-suggestions li svg) { color: var(--night-gold); }
+  html[data-theme="dark"] .family-module :is(.family-note-text, .family-preference p) { color: var(--night-text); }
+  html[data-theme="dark"] .family-module :is(.family-note-author, .family-note-blank p) { color: #d4c6a4; }
+  html[data-theme="dark"] .family-module .family-event-hero { background: var(--night-green); border-color: #465740; }
+  html[data-theme="dark"] .family-module .family-event-card.is-past { background: #1b251f; }
+  html[data-theme="dark"] .family-module .family-event-icon { background: var(--night-amber); }
+  html[data-theme="dark"] .family-module .family-person { background: var(--paper); color: var(--night-text); border-color: var(--night-border); }
+  html[data-theme="dark"] .family-module .family-person.is-selected { background: var(--night-green); border-color: var(--green); box-shadow: 0 0 0 1px #b8d6ac44; }
+  html[data-theme="dark"] .family-module .family-love { background: var(--night-peach); color: #e2c5af; border-color: #655040; }
+  html[data-theme="dark"] .family-module .family-goals-intro { background: var(--night-amber); border-color: #665a3c; }
+  html[data-theme="dark"] .family-module :is(.family-goal-intro-icon, .family-goal-symbol) { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .family-module .family-goal.is-complete .family-goal-symbol { background: var(--night-amber); color: var(--night-gold); }
+  html[data-theme="dark"] .family-module .family-late { color: var(--terracotta); }
+  html[data-theme="dark"] .family-module .family-progress { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .family-module .family-progress::-webkit-progress-bar { background: var(--night-green); }
+  html[data-theme="dark"] .family-module .family-progress::-webkit-progress-value { background: var(--green); }
+  html[data-theme="dark"] .family-module .family-progress::-moz-progress-bar { background: var(--green); }
+  html[data-theme="dark"] .family-module .family-milestones input { accent-color: var(--green); }
+
+  /* Private check-ins, rituals and daily questions. */
+  html[data-theme="dark"] .wellness-page { --wellness-green: var(--green); --wellness-ink: var(--night-text); --wellness-muted: var(--night-muted); --wellness-border: var(--line); }
+  html[data-theme="dark"] .wellness-error { background: var(--night-rose); color: var(--night-rose-text); border-color: #865951; }
+  html[data-theme="dark"] .wellness-success { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .wellness-notice { background: var(--night-amber); color: var(--night-gold); }
+  html[data-theme="dark"] .habit-selector { background: var(--paper); }
+  html[data-theme="dark"] .habit-selector.is-selected { background: var(--night-green); border-color: var(--green); }
+  html[data-theme="dark"] :is(.habit-encouragement, .question-conversation) { background: var(--night-peach); }
+  html[data-theme="dark"] :is(.habit-encouragement p, .question-conversation p) { color: #e2c5af; }
+  html[data-theme="dark"] :is(.streak-stat-number svg, .mood-history > .wellness-row svg) { color: var(--terracotta); }
+  html[data-theme="dark"] .calendar-day { background: var(--night-raised); color: var(--night-text); }
+  html[data-theme="dark"] .calendar-day.is-complete { background: #405b37; color: #e4f0db; }
+  html[data-theme="dark"] .calendar-day.is-today { border-color: var(--green); }
+  html[data-theme="dark"] .calendar-day:disabled:not(.is-complete) { color: var(--night-soft); background: #1b251f; }
+  html[data-theme="dark"] .calendar-day:not(:disabled):hover { box-shadow: inset 0 0 0 2px var(--green); }
+  html[data-theme="dark"] .legend-dot { background: var(--green); }
+  html[data-theme="dark"] .mood-option { background: var(--night-raised); color: var(--night-text); border-color: var(--night-border); }
+  html[data-theme="dark"] .mood-option.is-selected { background: var(--night-green); color: var(--green-deep); border-color: var(--green); }
+  html[data-theme="dark"] .mood-sharing { background: var(--night-raised); }
+  html[data-theme="dark"] .mood-sharing input { accent-color: var(--green); }
+  html[data-theme="dark"] .mood-sharing.is-shared { background: var(--night-green); }
+  html[data-theme="dark"] .wellness-tabs { background: var(--night-input); }
+  html[data-theme="dark"] .wellness-tabs button { color: var(--night-muted); }
+  html[data-theme="dark"] .wellness-tabs button.is-active { background: var(--night-raised); color: var(--green-deep); box-shadow: var(--shadow); }
+  html[data-theme="dark"] .mood-history-symbol { background: var(--night-amber); }
+  html[data-theme="dark"] :is(.mood-history-range, .mood-history-page-number) { color: var(--night-muted); }
+  html[data-theme="dark"] .question-choice { border-color: var(--night-border); }
+  html[data-theme="dark"] .question-choice.is-selected { background: var(--night-green); border-color: var(--green); color: var(--green-deep); }
+  html[data-theme="dark"] .question-letter { background: var(--night-raised); color: var(--night-muted); }
+  html[data-theme="dark"] .question-choice.is-selected .question-letter { background: #41583a; color: var(--green-deep); }
+  html[data-theme="dark"] :is(.question-privacy, .question-history-answer, .question-waiting) { border-color: var(--line); }
+  html[data-theme="dark"] .question-own-answer { background: var(--night-green); }
+  html[data-theme="dark"] .question-reveal-icon { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .question-waiting { color: var(--green); }
+
+  /* Recipe photos retain their real colors; surrounding cards and forms adapt. */
+  html[data-theme="dark"] .recipes-module { --recipe-green: var(--green); --recipe-muted: var(--night-muted); }
+  html[data-theme="dark"] .recipe-intro { background: var(--night-green); border-color: #465740; }
+  html[data-theme="dark"] :is(.recipe-intro .eyebrow, .recipe-intro h2, .recipe-card h3, .recipe-detail-heading h1, .recipe-detail h2, .recipe-form-section legend, .recipe-photo-upload h3) { color: var(--green-deep); }
+  html[data-theme="dark"] :is(.recipe-intro p, .recipe-intro-caption, .recipe-search > svg, .recipe-tag, .recipe-page-summary, .recipe-page-position, .recipe-art-label, .recipe-card p, .recipe-card-meta, .recipe-detail-heading > p, .recipe-detail-meta, .recipe-servings, .recipe-scaling-note, .recipe-ingredient-list small, .recipe-step-list p, .recipe-cook-note, .recipe-row-index, .recipe-privacy-note) { color: var(--night-muted); }
+  html[data-theme="dark"] .recipe-ingredient-list label.checked > span { color: var(--night-muted); }
+  html[data-theme="dark"] :is(.recipe-floating-leaf, .recipe-section-heading, .recipe-reset-servings, .recipe-source) { color: var(--green); }
+  html[data-theme="dark"] .recipe-plate { background: #687354; border-color: #a4ab8d; box-shadow: inset 0 0 0 2px #818b6a, 6px 9px 0 #17221c77; }
+  html[data-theme="dark"] :is(.recipe-search .input, .recipe-ingredient-note.input) { background: var(--night-input); }
+  html[data-theme="dark"] .recipe-filter-button { background: var(--night-raised); color: var(--night-text); border-color: var(--night-border); }
+  html[data-theme="dark"] .recipe-filter-button.active { background: var(--night-peach); color: #edc4ad; border-color: var(--terracotta); }
+  html[data-theme="dark"] .recipe-tag.active { background: var(--green); color: var(--night-on-accent); }
+  html[data-theme="dark"] .recipe-tag:hover:not(.active) { background: var(--night-hover); }
+  html[data-theme="dark"] .recipe-card { background: var(--paper); border-color: var(--line); }
+  html[data-theme="dark"] .recipe-card:hover { box-shadow: 0 8px 24px #0003; }
+  html[data-theme="dark"] :is(.recipe-art.peach, .recipe-art.clay) { background: var(--night-peach); }
+  html[data-theme="dark"] .recipe-art.sage { background: var(--night-green); }
+  html[data-theme="dark"] .recipe-art.cream { background: var(--night-amber); }
+  html[data-theme="dark"] .recipe-art-lines { background: #c8c5a72b; border-color: #c8c5a73b; box-shadow: 4px 6px 0 #0002, 0 0 0 1px #c8c5a733; }
+  html[data-theme="dark"] .recipe-favorite { background: #202c25ed; color: var(--night-text); border-color: var(--night-border); }
+  html[data-theme="dark"] .recipe-favorite.is-favorite { color: #efb197; }
+  html[data-theme="dark"] :is(.recipe-card-category, .recipe-step-number) { color: var(--terracotta); }
+  html[data-theme="dark"] :is(.recipe-card-meta, .recipe-detail-heading, .recipe-ingredient-list li + li, .recipe-cook-note, .recipe-delete-row, .recipe-form-actions) { border-color: var(--line); }
+  html[data-theme="dark"] .recipe-notice { background: var(--night-green); color: var(--green); }
+  html[data-theme="dark"] .recipe-alert { background: var(--night-rose); color: var(--night-rose-text); border-color: #865951; }
+  html[data-theme="dark"] .recipe-error { color: var(--night-rose-text); }
+  html[data-theme="dark"] .recipe-ingredients { background: var(--night-raised); border-color: var(--line); }
+  html[data-theme="dark"] .recipe-servings > div { background: var(--night-input); border-color: var(--night-border); }
+  html[data-theme="dark"] .recipe-servings input { color: var(--night-text); }
+  html[data-theme="dark"] .recipe-ingredient-list input { accent-color: var(--green); }
+  html[data-theme="dark"] .recipe-import-review { background: var(--night-amber); color: var(--night-gold); }
+  html[data-theme="dark"] .recipe-import-tabs button { background: var(--night-raised); color: var(--night-text); border-color: var(--night-border); }
+  html[data-theme="dark"] .recipe-import-tabs button.active { background: var(--night-green); color: var(--green-deep); border-color: var(--green); }
+  html[data-theme="dark"] .recipe-photo-upload { background: var(--night-raised); color: var(--night-muted); border-color: var(--night-border); }
+  html[data-theme="dark"] .recipe-photo-upload input::file-selector-button { background: var(--green); color: var(--night-on-accent); }
+  html[data-theme="dark"] .recipe-photo-preview img { border-color: var(--line); background: var(--night-input); }
+  html[data-theme="dark"] .recipe-photo-upload .recipe-photo-status { color: var(--green); }
+}

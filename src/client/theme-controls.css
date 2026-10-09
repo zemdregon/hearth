@@ -1,0 +1,6 @@
+.theme-control{display:flex;align-items:center;gap:8px;font-size:12px;flex-shrink:0}
+.theme-control>.input{width:94px;min-height:36px;padding:7px 9px;font-size:12px}
+.gate-header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+@media(max-width:600px){.theme-control>span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.theme-control>.input{width:83px;padding:7px;font-size:12px}.gate-header{gap:12px}}
+@media(max-width:400px){.topbar .topbar-right{gap:6px}}
+@media print{html{color-scheme:light!important}.theme-control{display:none!important}}
