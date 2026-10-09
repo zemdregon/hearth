@@ -2,6 +2,8 @@
 
 ## Current release gates — 2026-10-08
 
+Hostname follow-up, 2026-10-09: the selected origin is `https://hearth.kaina.one` with RP ID `hearth.kaina.one`. Read-only checks found no existing DNS record or Worker custom-domain binding at that hostname. Local route configuration, preflight with these environment values, all 48 deployment tests and Worker dry run pass. Publication and remote migrations remain unperformed. The account inspection below records the earlier state.
+
 The current implementation uses internal passkeys only. The Access-era reviews below are historical regression evidence, not the current authentication design. Latest completed checks: 556 unit/integration tests, 12 focused passkey browser checks, production build, Worker dry run and the isolated local D1 restore/recovery rehearsal. The preceding complete browser run passed 103 checks. See [ROADMAP.md](ROADMAP.md) for exact scopes and chronology.
 
 Read-only account inspection observed the following on 2026-10-08:

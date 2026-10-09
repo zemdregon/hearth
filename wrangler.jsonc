@@ -9,5 +9,6 @@
   "ai": { "binding": "AI" },
   "vars": { "FAMILY_TIMEZONE": "UTC" },
   "observability": { "enabled": false },
-  "workers_dev": false
+  "workers_dev": false,
+  "routes": [{ "pattern": "hearth.kaina.one", "custom_domain": true }]
 }

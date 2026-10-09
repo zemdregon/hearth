@@ -2,6 +2,16 @@
 
 ## Passkey deployment prerequisites
 
+The selected permanent hostname is `hearth.kaina.one` (2026-10-09). Its canonical origin is `https://hearth.kaina.one` and its WebAuthn RP ID is `hearth.kaina.one`. The checked-in Worker custom-domain route targets this hostname; `workers_dev` remains disabled. Supply the selected settings to the deployment environment:
+
+```sh
+export APP_ORIGIN=https://hearth.kaina.one
+export WEBAUTHN_RP_ID=hearth.kaina.one
+npm run deploy:preflight
+```
+
+The existing `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` supply account access. These local settings and a successful preflight do not publish the Worker or create DNS/TLS resources. The first authorized deployment must still take the database backup baseline, apply all six migrations and publish the passkey configuration. Initial member enrollment remains a separate reviewed operator action.
+
 The Worker uses internal passkey-only authentication. No email identity provider, password, OTP or public signup is supported. Follow [AUTHENTICATION.md](AUTHENTICATION.md) for operator enrollment/recovery and the verification gates. Production release still requires a stable hostname, real-device checks and the live operational rehearsals recorded in the roadmap.
 
 Cloudflare Workers, D1 and Workers AI remain the hosting stack. Token/account configuration and read-only D1 access were verified on 2026-10-08; `wrangler.jsonc` identifies the existing `hearth-family-db`. Remote migrations, deployment and inference have not been verified.
