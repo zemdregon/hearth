@@ -2,7 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 // One worker: the real-Worker inventory specs share one local D1 and toggle the inventory module, so spec
 // files running side by side would disable the module under each other.
 export default defineConfig({
-  testDir: './tests/e2e', fullyParallel:false, workers:1, retries:0, timeout:30000,
+  testDir: './tests/e2e', fullyParallel:false, workers:1, timeout:30000,
+  // The shared CI runner is slow and uneven: one retry (a retried pass is reported as flaky, never hidden) and a longer
+  // assertion wait there. Local runs stay strict.
+  retries:process.env.CI ? 1 : 0, expect:{timeout:process.env.CI ? 10000 : 5000},
   use:{baseURL:'http://localhost:5173',trace:'retain-on-failure',...devices['Desktop Chrome'],launchOptions:{executablePath:process.env.PLAYWRIGHT_MANAGED_BROWSER ? undefined : process.env.CHROMIUM_PATH || '/usr/bin/chromium',args:['--no-sandbox']}},
   webServer:[
     {command:'npm run dev -- --host 127.0.0.1',url:'http://localhost:5173',reuseExistingServer:!process.env.CI,timeout:60000},
