@@ -117,7 +117,10 @@ export async function createHabitWithHistory(db: D1Database, user: User, data: R
     ]);
     if (results[0].results.length !== 1 || results[1].results.length !== logs.length) throw new ApiError(409, 'This change is no longer available. Refresh and try again.');
     return habit;
-  } catch (error) { return translateConstraint(error); }
+  } catch (error) {
+    if (error instanceof Error && /FAMILY_STORAGE_LIMIT/.test(error.message)) throw new ApiError(409, `There isn’t room for ${logs.length} days of history (each day is one record). Choose a later start date, or remove older items first.`);
+    return translateConstraint(error);
+  }
 }
 
 export async function updateRecord(db: D1Database, record: FamilyRecord, data: RecordDataMap[RecordKind], version: number): Promise<FamilyRecord> {

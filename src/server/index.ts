@@ -13,7 +13,7 @@ import { createSchema, deleteSchema, habitCreateSchema, importSchema, moduleSche
 import { importRecipe, RecipeImportError } from './recipe-import';
 import { matchesSnapshot, snapshotTag } from './snapshot';
 import { passkeyRoutes } from './passkeys';
-import { inventoryEnabled, inventoryRoutes, readInventoryState, readLedger } from './inventory';
+import { inventoryEnabled, inventoryRoutes, readConsumptions, readInventoryState, readLedger } from './inventory';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -173,7 +173,7 @@ app.get('/api/export', async c => {
   // export carries the newest history entries; the full ledger stays in storage.
   if (!await inventoryEnabled(c.env.DB)) return c.json({ schemaVersion: 1, ...base });
   const newest = await readLedger(c.env.DB, null, 1001);
-  return c.json({ schemaVersion: 2, ...base, inventory: { ...await readInventoryState(c.env.DB), ledger: newest.slice(0, 1000), ledgerTruncated: newest.length > 1000 } });
+  return c.json({ schemaVersion: 2, ...base, inventory: { ...await readInventoryState(c.env.DB), ledger: newest.slice(0, 1000), ledgerTruncated: newest.length > 1000, cookings: (await readConsumptions(c.env.DB, null, 50)).entries } });
 });
 
 app.all('/api/*', c => c.json({ error: 'This API endpoint does not exist.' }, 404));

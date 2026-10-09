@@ -109,7 +109,7 @@ describe('creating a habit with retroactive check-ins', () => {
     const before = storage();
     const response = await create({ data: habit, startDate: '2026-10-01' }); // needs 9 rows, only 5 left
     expect(response.status).toBe(409);
-    expect(((await response.json()) as { error: string }).error).toMatch(/storage is full/);
+    expect(((await response.json()) as { error: string }).error).toMatch(/room for 8 days of history/);
     expect(storage()).toEqual(before);
     expect(h.sqlite.prepare("SELECT COUNT(*) AS n FROM records WHERE kind IN ('habit', 'habitLog')").get()).toEqual({ n: 0 });
   });

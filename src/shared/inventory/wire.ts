@@ -12,7 +12,7 @@ export type InventoryState = { locations: InvLocation[]; items: InvItem[]; lots:
 export type InvLedgerKind = 'add' | 'adjust' | 'count' | 'archive';
 export type InvLedgerEntry = { seq: number; txnId: string; kind: InvLedgerKind; memberId: string; lotId: string; itemId: string; itemName: string; dim: StockDimension; delta: number; qtyAfter: number; reason: string; createdAt: number };
 export type InvLotResult = { lots: InvLot[]; replayed: boolean };
-export type InventoryExport = InventoryState & { ledger: InvLedgerEntry[]; ledgerTruncated: boolean };
+export type InventoryExport = InventoryState & { ledger: InvLedgerEntry[]; ledgerTruncated: boolean; /** Newest 50 recorded cookings, with their shortfalls. */ cookings: InvConsumption[] };
 
 /** Household measuring convention for recipe cups/spoons; null until an administrator chooses one. */
 export type InvProfile = 'us-customary' | 'us-label' | 'metric-250';

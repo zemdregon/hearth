@@ -187,6 +187,19 @@ describe('undo', () => {
     expect((await post(`/txns/${undoId}/undo`, { txnId: txn() })).status).toBe(404); // an undo cannot be undone
     expect(count('inv_consumptions')).toBe(2);
   });
+  it('explains an inexact undo plainly instead of a generic conflict', async () => {
+    const { done, later } = await cooked();
+    const current = (await state()).lots.find(lot => lot.id === later.id)!;
+    await post(`/lots/${later.id}/adjust`, { txnId: txn(), version: current.version, mode: 'add', amount: '1', unit: 'g', reason: '' });
+    const refused = await post(`/txns/${done.txnId}/undo`, { txnId: txn() });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/can’t be put back exactly/);
+  });
+  it('includes recorded cookings in the export', async () => {
+    const { done } = await cooked();
+    const exported = await (await h.request('/api/export')).json() as { inventory: { cookings: InvConsumption[] } };
+    expect(exported.inventory.cookings.map(entry => entry.txnId)).toEqual([done.txnId]);
+  });
   it('replays an identical undo and rejects a reused id for another target', async () => {
     const { done } = await cooked();
     const id = txn();

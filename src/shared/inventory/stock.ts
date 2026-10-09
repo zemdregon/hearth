@@ -34,7 +34,7 @@ const REASONS: Readonly<Record<string, string>> = {
 export function stockQuantity(entry: StockEntry, dimension: StockDimension, options: { allowZero?: boolean } = {}): StockResult {
   const parsed = parseQuantity(entry.amount);
   if (!parsed.ok) return { ok: false, message: parsed.reason === 'QUANTITY_LIMIT' ? 'That amount is too large.' : 'Enter one exact amount such as 2, 1/2 or 1.5.' };
-  if (compare(parsed.value.lo, parsed.value.hi) !== 0) return { ok: false, message: 'Enter one amount, not a range. Mark stock as estimated instead.' };
+  if (compare(parsed.value.lo, parsed.value.hi) !== 0) return { ok: false, message: 'Enter one amount, not a range. For a rough amount, type your best single guess (like 1.5) and tick “It’s an estimate”.' };
   if (!options.allowZero && compare(parsed.value.lo, ZERO) === 0) return { ok: false, message: 'Enter an amount greater than zero.' };
   const unit = resolveUnit(entry.unit, entry.profile);
   if (!unit.ok) return { ok: false, message: REASONS[unit.reason] };

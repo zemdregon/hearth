@@ -88,8 +88,8 @@ function translate(error: unknown): never {
   if (/INVENTORY_LIMIT/.test(message)) throw new ApiError(409, 'Inventory is full. Archive items, locations or lots you no longer use.');
   if (/INVENTORY_IN_USE/.test(message)) throw new ApiError(409, 'Use up or archive the stock stored here first.');
   if (/UNIQUE constraint failed.*(dims)/is.test(message)) throw new ApiError(409, 'This item already has a conversion between these kinds of measurement. Remove it first.');
-  if (/UNIQUE constraint failed.*(name_key)/is.test(message)) throw new ApiError(409, 'That name is already in use. Refresh to see it.');
-  if (/INVENTORY_REFERENCE|FOREIGN KEY|CHECK constraint failed|INVENTORY_LEDGER_IMMUTABLE|UNIQUE constraint failed/i.test(message)) throw new ApiError(409, 'Inventory changed. Refresh and try again.');
+  if (/UNIQUE constraint failed.*(name_key)/is.test(message)) throw new ApiError(409, 'That name is already in use.');
+  if (/INVENTORY_REFERENCE|FOREIGN KEY|CHECK constraint failed|INVENTORY_LEDGER_IMMUTABLE|UNIQUE constraint failed/i.test(message)) throw new ApiError(409, 'Something changed in inventory while you were working on this.');
   throw error;
 }
 
@@ -122,7 +122,7 @@ async function mutate(db: Db, statements: D1PreparedStatement[]): Promise<void> 
 async function priorTransaction(db: Db, txn: string, memberId: string, hash: string): Promise<InvLot[] | null> {
   const row = await db.prepare('SELECT member_id, request_hash FROM inv_txns WHERE id = ?').bind(txn).first<{ member_id: string; request_hash: string }>();
   if (!row) return null;
-  if (row.member_id !== memberId || row.request_hash !== hash) throw new ApiError(409, 'This request id was already used for a different change. Refresh and try again.');
+  if (row.member_id !== memberId || row.request_hash !== hash) throw new ApiError(409, 'This request id was already used for a different change. Please try again.');
   const rows = await db.prepare('SELECT l.* FROM inv_lots l WHERE l.id IN (SELECT lot_id FROM inv_ledger WHERE txn_id = ?) ORDER BY l.id').bind(txn).all<LotRow>();
   return rows.results.map(lot);
 }
@@ -137,7 +137,7 @@ async function runLotTransaction(db: Db, txn: string, memberId: string, hash: st
     translate(error);
   }
   const row = await db.prepare('SELECT * FROM inv_lots WHERE id = ?').bind(lotId).first<LotRow>();
-  if (!row) throw new ApiError(409, 'Inventory changed. Refresh and try again.');
+  if (!row) throw new ApiError(409, 'Something changed in inventory while you were working on this.');
   return { lots: [lot(row)], replayed: false };
 }
 
@@ -201,21 +201,30 @@ inventoryRoutes.patch('/items/:id', async c => {
   try {
     const row = await c.env.DB.prepare(`UPDATE inv_items SET name = ?, name_key = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND archived_at IS NULL AND ${MODULE_ENABLED} RETURNING id, name, dim, version`)
       .bind(input.name, nameKey(input.name), now(), itemId, input.version).first<ItemRow>();
-    if (!row) throw new ApiError(409, 'Someone changed this item. Refresh to see the latest version.');
+    if (!row) throw new ApiError(409, 'Someone else changed this item at the same moment.');
     return c.json(item(row));
   } catch (error) { return translate(error); }
 });
 
 inventoryRoutes.post('/items/:id/archive', async c => {
   const input = parseInput(schemas.archive, await readJson(c.req.raw));
+  await guardItemRemoval(c.env.DB, c.req.param('id'));
   return c.json(await archive(c.env.DB, 'inv_items', c.req.param('id'), input.version));
 });
+
+async function guardItemRemoval(db: Db, itemId: string): Promise<void> {
+  const holds = await db.prepare(`SELECT (SELECT COUNT(*) FROM inv_lots WHERE item_id = ?1 AND archived_at IS NULL) AS lots,
+    (SELECT COUNT(*) FROM inv_aliases WHERE item_id = ?1 AND archived_at IS NULL) AS aliases,
+    (SELECT COUNT(*) FROM inv_calibrations WHERE item_id = ?1 AND archived_at IS NULL) AS conversions`).bind(itemId).first<{ lots: number; aliases: number; conversions: number }>();
+  if (holds?.lots) throw new ApiError(409, 'Use up or archive the stock stored here first.');
+  if (holds?.aliases || holds?.conversions) throw new ApiError(409, 'This item is still used by recipe matches or conversions. Remove them under Inventory → Recipe matching first.');
+}
 
 async function archive(db: Db, table: 'inv_items' | 'inv_locations' | 'inv_aliases' | 'inv_calibrations', rowId: string, expected: number): Promise<{ id: string }> {
   try {
     const row = await db.prepare(`UPDATE ${table} SET archived_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND archived_at IS NULL AND ${MODULE_ENABLED} RETURNING id`)
       .bind(now(), now(), rowId, expected).first<{ id: string }>();
-    if (!row) throw new ApiError(409, 'Someone changed this. Refresh to see the latest version.');
+    if (!row) throw new ApiError(409, 'Someone else changed this at the same moment.');
     return row;
   } catch (error) { return translate(error); }
 }
@@ -332,7 +341,7 @@ inventoryRoutes.put('/settings', async c => {
   try {
     const row = await c.env.DB.prepare(`UPDATE inv_settings SET measure_profile = ?, version = version + 1 WHERE id = 1 AND version = ? AND ${MODULE_ENABLED} RETURNING measure_profile, version`)
       .bind(input.measureProfile, input.version).first<SettingsRow>();
-    if (!row) throw new ApiError(409, 'Someone changed this. Refresh to see the latest version.');
+    if (!row) throw new ApiError(409, 'Someone else changed this at the same moment.');
     return c.json({ measureProfile: row.measure_profile, version: row.version } satisfies InvSettings);
   } catch (error) { return translate(error); }
 });
@@ -445,16 +454,18 @@ inventoryRoutes.post('/consume/preview', async c => {
 });
 
 /** Runs a multi-lot batch under the same replay rules as single-lot transactions. */
-async function runBatch(db: Db, txn: string, memberId: string, hash: string, build: () => Promise<D1PreparedStatement[]>): Promise<{ lots: InvLot[]; replayed: boolean }> {
+async function runBatch(db: Db, txn: string, memberId: string, hash: string, build: () => Promise<D1PreparedStatement[]>, conflict?: string): Promise<{ lots: InvLot[]; replayed: boolean }> {
   const earlier = await priorTransaction(db, txn, memberId, hash);
   if (earlier) return { lots: earlier, replayed: true };
   try { await db.batch(await build()); } catch (error) {
     const raced = await priorTransaction(db, txn, memberId, hash);
     if (raced) return { lots: raced, replayed: true };
+    // A failed guard (changed, archived or insufficient stock) is the only CHECK this batch can trip.
+    if (conflict && error instanceof Error && /CHECK constraint failed/i.test(error.message)) throw new ApiError(409, conflict);
     translate(error);
   }
   const done = await priorTransaction(db, txn, memberId, hash);
-  if (!done) throw new ApiError(409, 'Inventory changed. Refresh and try again.');
+  if (!done) throw new ApiError(409, 'Something changed in inventory while you were working on this.');
   return { lots: done, replayed: false };
 }
 
@@ -474,7 +485,7 @@ inventoryRoutes.post('/consume', async c => {
   const byLot = new Map(state.lots.map(row => [row.id, row]));
   for (const take of takes) {
     const stored = byLot.get(take.lotId);
-    if (!stored || !mapped.has(stored.itemId)) throw new ApiError(409, 'Inventory changed. Refresh and try again.');
+    if (!stored || !mapped.has(stored.itemId)) throw new ApiError(409, 'Something changed in inventory while you were working on this.');
     if (take.take > stored.qty) throw new ApiError(409, 'There is less in stock than that. Recount, then try again.');
     if (isExpired(stored, todayInTimezone(c.get('family').timezone))) throw new ApiError(409, 'Some of this stock is past its use-by date. Archive it instead of cooking with it.');
   }
@@ -493,7 +504,7 @@ inventoryRoutes.post('/consume', async c => {
       FROM json_each(?1) AS j JOIN inv_lots AS l ON l.id = json_extract(j.value, '$.lotId')`).bind(json, input.txnId, `Cooked: ${title}`.slice(0, 200), time),
     db.prepare(`UPDATE inv_lots SET qty = inv_lots.qty - json_extract(j.value, '$.take'), version = inv_lots.version + 1, updated_at = ?2
       FROM json_each(?1) AS j WHERE inv_lots.id = json_extract(j.value, '$.lotId')`).bind(json, time),
-  ]);
+  ], 'Some of this stock changed before your cooking was saved, so nothing was taken out.');
   return c.json({ ...result, txnId: input.txnId } satisfies ConsumeResult, result.replayed ? 200 : 201);
 });
 
@@ -529,13 +540,11 @@ inventoryRoutes.post('/txns/:id/undo', async c => {
       FROM json_each(?1) AS j JOIN inv_lots AS l ON l.id = json_extract(j.value, '$.lotId')`).bind(json, input.txnId, time),
     db.prepare(`UPDATE inv_lots SET qty = inv_lots.qty + json_extract(j.value, '$.give'), version = inv_lots.version + 1, updated_at = ?2
       FROM json_each(?1) AS j WHERE inv_lots.id = json_extract(j.value, '$.lotId')`).bind(json, time),
-  ]);
+  ], 'Some of this stock has changed since it was used, so it can’t be put back exactly. Recount it in Inventory instead.');
   return c.json({ ...result, txnId: input.txnId } satisfies ConsumeResult, result.replayed ? 200 : 201);
 });
 
-inventoryRoutes.get('/consumptions', async c => {
-  const query = parseInput(z.object({ before: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }).strict(), c.req.query());
-  const db = c.env.DB;
+export async function readConsumptions(db: Db, before: number | null, limit: number): Promise<{ entries: InvConsumption[]; next: number | null }> {
   const rows = await db.prepare(`SELECT c.txn_id, c.recipe_id, c.recipe_title, c.servings, c.shortfalls, c.reverses_txn_id, c.created_at, t.member_id, t.rowid AS ordinal,
       (SELECT u.txn_id FROM inv_consumptions u WHERE u.reverses_txn_id = c.txn_id) AS undone_by,
       (c.reverses_txn_id IS NULL
@@ -543,7 +552,7 @@ inventoryRoutes.get('/consumptions', async c => {
         AND NOT EXISTS (SELECT 1 FROM inv_ledger g JOIN inv_lots l ON l.id = g.lot_id WHERE g.txn_id = c.txn_id
           AND (l.archived_at IS NOT NULL OR l.qty != g.qty_after OR EXISTS (SELECT 1 FROM inv_ledger g2 WHERE g2.lot_id = g.lot_id AND g2.seq > g.seq)))) AS can_undo
     FROM inv_consumptions c JOIN inv_txns t ON t.id = c.txn_id WHERE (? IS NULL OR t.rowid < ?) ORDER BY t.rowid DESC LIMIT ?`)
-    .bind(query.before ?? null, query.before ?? null, query.limit).all<{ txn_id: string; recipe_id: string | null; recipe_title: string; servings: number; shortfalls: string; reverses_txn_id: string | null; created_at: number; member_id: string; ordinal: number; undone_by: string | null; can_undo: number }>();
+    .bind(before, before, limit).all<{ txn_id: string; recipe_id: string | null; recipe_title: string; servings: number; shortfalls: string; reverses_txn_id: string | null; created_at: number; member_id: string; ordinal: number; undone_by: string | null; can_undo: number }>();
   const ids = rows.results.map(row => row.txn_id);
   const lines = ids.length ? await db.prepare(`SELECT g.txn_id, g.lot_id, g.item_id, i.name AS item_name, i.dim, g.delta FROM inv_ledger g JOIN inv_items i ON i.id = g.item_id WHERE g.txn_id IN (SELECT value FROM json_each(?)) ORDER BY g.seq`).bind(JSON.stringify(ids)).all<{ txn_id: string; lot_id: string; item_id: string; item_name: string; dim: StockDimension; delta: number }>() : { results: [] };
   const names = new Map((await db.prepare('SELECT id, name, dim FROM inv_items').all<ItemRow>()).results.map(row => [row.id, row]));
@@ -552,5 +561,10 @@ inventoryRoutes.get('/consumptions', async c => {
     lots: lines.results.filter(line => line.txn_id === row.txn_id).map(line => ({ lotId: line.lot_id, itemId: line.item_id, itemName: line.item_name, dim: line.dim, delta: line.delta })),
     shortfalls: (JSON.parse(row.shortfalls) as { itemId: string; amount: number }[]).flatMap(entry => { const known = names.get(entry.itemId); return known ? [{ itemId: entry.itemId, itemName: known.name, dim: known.dim, amount: entry.amount }] : []; }), undoneBy: row.undone_by, canUndo: row.can_undo === 1, reverses: row.reverses_txn_id,
   }));
-  return c.json({ entries, next: entries.length === query.limit ? rows.results[rows.results.length - 1].ordinal : null });
+  return { entries, next: entries.length === limit ? rows.results[rows.results.length - 1].ordinal : null };
+}
+
+inventoryRoutes.get('/consumptions', async c => {
+  const query = parseInput(z.object({ before: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }).strict(), c.req.query());
+  return c.json(await readConsumptions(c.env.DB, query.before ?? null, query.limit));
 });

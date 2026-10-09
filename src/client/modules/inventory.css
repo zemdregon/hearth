@@ -23,6 +23,11 @@
 .inventory-lot-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .inventory-qty { font-family: var(--serif); font-size: 21px; font-weight: 600; color: var(--inv-ink); overflow-wrap: anywhere; }
 .inventory-lot .pill { white-space: normal; }
+.inventory-lot.is-used-up .inventory-qty { color: var(--inv-soft); font-size: 18px; }
+.inventory-used-up { border-top: 1px solid var(--line); padding: 6px 0; }
+.inventory-used-up > .button { justify-content: flex-start; }
+.inventory-used-up > ul[hidden] { display: none; }
+.inventory-used-up .inventory-lot:first-child { border-top: 0; }
 .inventory-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; color: var(--inv-soft); font-size: 14px; }
 .inventory-meta > span { display: inline-flex; align-items: center; gap: 5px; }
 .inventory-meta svg { flex-shrink: 0; }
@@ -64,6 +69,7 @@
 .inventory-matching { display: grid; gap: 14px; padding: 18px; min-width: 0; }
 .inventory-matching h2 { margin: 0; font-size: 23px; line-height: 1.25; color: var(--inv-ink); }
 .inventory-matching h3 { margin: 0 0 6px; font-family: var(--serif); font-size: 19px; font-weight: 600; color: var(--inv-ink); }
+.inventory-matching h3:focus-visible { outline: 2px solid var(--night-focus, var(--inv-accent)); outline-offset: 3px; border-radius: 4px; }
 .inventory-soft { margin: 0; color: var(--inv-soft); font-size: 14px; line-height: 1.55; }
 .inventory-field-name { font-size: 14px; font-weight: 600; color: var(--inv-ink); }
 .inventory-readonly { margin: 0; font-size: 15px; font-weight: 600; color: var(--inv-ink); }
@@ -96,6 +102,7 @@
   html[data-theme="dark"] .inventory-module .card { background: var(--paper); border-color: var(--line); }
   html[data-theme="dark"] .inventory-module select.input option { background: var(--night-input); color: var(--night-text); }
   html[data-theme="dark"] .inventory-choice label { color: var(--night-text); }
+  html[data-theme="dark"] .inventory-matching h3:focus-visible,
   html[data-theme="dark"] .inventory-cooking h2:focus-visible,
   html[data-theme="dark"] .inventory-group-head h2:focus-visible,
   html[data-theme="dark"] .inventory-end:focus-visible { outline-color: var(--night-focus); }

@@ -75,6 +75,7 @@ export function checkRecipe(input: Readonly<{
   const excluded = new Set(input.exclude);
   const demands: Demand[] = [];
   const mappedItems = new Set<string>();
+  const ozAssumed = new Set<string>();
   input.recipe.ingredients.forEach((ingredient, index) => {
     if (excluded.has(index)) { demands.push({ id: String(index), identity: null, amount: null, required: false }); return; }
     const itemId = input.names.get(ingredientKey(ingredient.name));
@@ -86,7 +87,10 @@ export function checkRecipe(input: Readonly<{
       const low = exactRational(ingredient.quantity);
       const high = ingredient.quantityMax === undefined ? low : exactRational(ingredient.quantityMax);
       // A bare count ("2 eggs") means the item's own count unit; every other unit must resolve on its own.
-      const unit = ingredient.unit.trim() || (item.dim.startsWith('count:') ? item.dim.slice(6) : '');
+      let unit = ingredient.unit.trim() || (item.dim.startsWith('count:') ? item.dim.slice(6) : '');
+      // The cook chose to track this item by weight, so a bare “oz” on it is a weight ounce. Other
+      // items keep the ambiguity (a tracked-by-volume “oz” could be either) and stay unknown.
+      if (item.dim === 'mass' && ['oz', 'ounce', 'ounces'].includes(unit.toLowerCase())) { unit = 'oz-mass'; ozAssumed.add(item.id); }
       amount = { quantity: interval(low, high), unit, ...(input.profile ? { profile: input.profile } : {}) };
     }
     demands.push({ id: String(index), identity: { itemId: item.id, form: FORM }, amount });
@@ -115,7 +119,7 @@ export function checkRecipe(input: Readonly<{
     const item = byId.get(row.identity.itemId)!;
     return {
       itemId: item.id, itemName: item.name, dim: item.dim, lineIndexes: row.lineIds.map(Number), verdict: row.verdict,
-      reasons: [...row.reasons, ...(expiredItems.has(item.id) ? ['EXPIRED_STOCK_EXCLUDED'] : [])], need: range(row.demand, item.dim), have: range(row.supply, item.dim),
+      reasons: [...row.reasons, ...(expiredItems.has(item.id) ? ['EXPIRED_STOCK_EXCLUDED'] : []), ...(ozAssumed.has(item.id) ? ['OZ_ASSUMED_WEIGHT'] : [])], need: range(row.demand, item.dim), have: range(row.supply, item.dim),
       needComplete: row.demandComplete, haveComplete: row.supplyComplete,
       short: row.shortage ? range(row.shortage, item.dim) : null,
     };

@@ -17,6 +17,7 @@ async function apiResponse(path: string, init?: RequestInit): Promise<Response> 
   catch { throw new ApiError('We couldn’t reach your family space. Check your connection and try again.',0); }
 }
 async function apiBody<T>(response:Response):Promise<T> {
+  if (!response.redirected && response.status>=500 && !(response.headers.get('content-type') || '').includes('application/json')) throw new ApiError('Something went wrong on our side. Please try again in a moment.',response.status);
   if (response.redirected || !(response.headers.get('content-type') || '').includes('application/json')) throw new ApiError('Your session needs a fresh sign-in. Please sign in again.',401);
   const body = await response.json();
   if(!response.ok) throw new ApiError(typeof body==='object' && body!==null && 'error' in body && typeof body.error==='string' ? body.error : 'Something went wrong. Please try again.',response.status);

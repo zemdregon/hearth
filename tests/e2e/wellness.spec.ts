@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { addDays, formatDate, todayInTimezone } from '../../src/shared/calendar';
+import { createDemo } from '../../src/client/demo';
+import type { Bootstrap, FamilyCapacity } from '../../src/shared/types';
 
 async function demo(page: Page, module: string) {
   await page.route('**/api/bootstrap', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Local demo test.' }) }));
@@ -46,6 +48,70 @@ test('habit creation and deletion preserve a usable empty calendar', async ({ pa
   await expect(page.getByRole('heading', { name: 'A few pages before bed' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'A little fresh air', exact: true })).toBeVisible();
 });
+
+test('the backdate dialog speaks plainly about one day, large spans, errors and closing', async ({ page }) => {
+  await demo(page, 'streaks');
+  const today = todayInTimezone('UTC');
+  const yesterday = addDays(today, -1);
+  await page.getByRole('button', { name: 'Add a habit' }).click();
+  const dialog = page.getByRole('dialog');
+  const start = dialog.getByLabel('Already doing this?');
+  await dialog.getByLabel('Habit name').fill('Evening walk');
+  // One day: singular, and a single date instead of “Oct 8 through Oct 8”.
+  await start.fill(yesterday);
+  const help = dialog.locator('#habit-start-help');
+  await expect(help).toHaveText(`Counts 1 day as checked in, ${formatDate(yesterday)}. You can uncheck any day afterward.`);
+  await expect(help).not.toContainText('through');
+  await start.fill(addDays(today, -5));
+  await expect(help).toHaveText(`Counts 5 days as checked in, ${formatDate(addDays(today, -5))} through ${formatDate(yesterday)}. You can uncheck any day afterward.`);
+  await expect(dialog.getByText('This adds one check-in record for each day.')).toHaveCount(0);
+  // A long span says how many records it makes; a roomy family space needs no warning.
+  await start.fill(addDays(today, -40));
+  await expect(dialog.getByText('This adds one check-in record for each day.')).toBeVisible();
+  await expect(start).toHaveAccessibleDescription(/This adds one check-in record for each day\./);
+  await expect(dialog.getByText(/may not fit/)).toHaveCount(0);
+  // An invalid start is an error, in the error style, announced as an alert.
+  await start.fill(addDays(today, -400));
+  await expect(help).toHaveAttribute('role', 'alert');
+  await expect(help).toHaveClass(/wellness-error/);
+  await expect(help).not.toHaveClass(/muted/);
+  // Cancelling clears both the name and the date.
+  await start.fill(addDays(today, -5));
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add a habit' }).click();
+  await expect(dialog.getByLabel('Habit name')).toHaveValue('');
+  await expect(dialog.getByLabel('Already doing this?')).toHaveValue('');
+  // A habit that started yesterday has a one-day streak, and says “1 day”.
+  await dialog.getByLabel('Habit name').fill('Evening walk');
+  await dialog.getByLabel('Already doing this?').fill(yesterday);
+  await dialog.getByRole('button', { name: 'Create habit', exact: true }).click();
+  const mini = page.locator('.habit-selector').filter({ hasText: 'Evening walk' }).locator('.habit-mini-streak');
+  await expect(mini).toHaveText(/^1\s*day$/);
+});
+
+for (const capacity of ['near-limit', 'full'] as FamilyCapacity[]) {
+  test.describe(`a family space that is ${capacity}`, () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+    test('warns that a long backdate may not fit, and shows server errors without a field prefix', async ({ page }) => {
+      const fixture: Bootstrap = { ...createDemo(), demo: false, records: [], capacity };
+      await page.route('**/api/bootstrap', route => route.fulfill({ json: fixture }));
+      await page.route('**/api/habits', route => route.fulfill({ status: 400, json: { error: 'data.title: Choose a shorter habit name.' } }));
+      await page.goto('/#streaks');
+      await page.getByRole('button', { name: 'Add a habit' }).click();
+      const dialog = page.getByRole('dialog');
+      const today = todayInTimezone('UTC');
+      await dialog.getByLabel('Habit name').fill('Evening walk');
+      await dialog.getByLabel('Already doing this?').fill(addDays(today, -5));
+      await expect(dialog.getByText(/may not fit/)).toHaveCount(0);
+      await dialog.getByLabel('Already doing this?').fill(addDays(today, -40));
+      await expect(dialog.getByRole('status').filter({ hasText: 'may not fit' })).toHaveText(capacity === 'full' ? 'Your family space has reached a storage limit, so a long backdate may not fit.' : 'Your family space is nearly full, so a long backdate may not fit.');
+      expect((await new AxeBuilder({ page }).include('dialog[open], [role="dialog"]').analyze()).violations).toEqual([]);
+      await dialog.getByRole('button', { name: 'Create habit', exact: true }).click();
+      await expect(dialog.getByRole('alert')).toHaveText('Choose a shorter habit name.');
+    });
+  });
+}
 
 test('a new habit can be backdated so earlier days count toward the streak', async ({ page }) => {
   await demo(page, 'streaks');

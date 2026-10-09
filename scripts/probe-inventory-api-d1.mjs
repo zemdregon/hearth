@@ -208,7 +208,7 @@ try {
   const rowsBefore = await count('records');
   const refused = (await json(await call('/__habit', { method: 'POST', body: { dates: ['2026-09-01', '2026-09-02', '2026-09-03'] } }))).body;
   assert.equal(refused.ok, false);
-  assert.match(refused.message, /storage is full/);
+  assert.match(refused.message, /room for 3 days of history/);
   assert.equal(await count('records'), rowsBefore, 'a failed backfill must not leave the habit behind');
   await sql('UPDATE family_storage SET record_count = 4 WHERE id = 1');
   pass('habit with retroactive check-ins commits as one batch on D1; over-budget history rolls the habit back');

@@ -101,5 +101,5 @@ describe('passkey production deployment configuration', () => {
       writeFileSync(join(dir,'migrations/0010_inventory_consumption.sql'),'');
       const complete=run(); expect(complete.status).toBe(0); expect(complete.stdout).toContain('checks passed');
     } finally { rmSync(dir,{recursive:true,force:true}); }
-  });
+  }, 30_000); // spawns the preflight script once per migration; five seconds is too tight on a busy host
 });

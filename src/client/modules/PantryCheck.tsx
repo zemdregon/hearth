@@ -4,7 +4,7 @@ import { ChefHat, CircleCheck, CircleHelp, ClipboardCopy, Link2, ListPlus, Packa
 import { api, useFamily } from '../store';
 import { Badge, Button, Modal } from '../components/ui';
 import { FamilyFeedback } from './family-ui';
-import { AmountInputs, DIMENSION_LABELS, Fld, MASS_UNITS, VOLUME_UNITS, dimensionHint, messageOf, needsConvention, post, statusOf, unitsFor, useFocusFirst, useWrite } from './Inventory';
+import { AmountInputs, DIMENSION_LABELS, Fld, MASS_UNITS, VOLUME_UNITS, amountHint, dimensionHint, messageOf, needsConvention, post, prettyEntered, sentence, statusOf, unitsFor, useFocusFirst, useWrite } from './Inventory';
 import type { Amount, AmountProblem } from './Inventory';
 import { ingredientAmount } from '../../shared/recipes';
 import { compare, parseQuantity, ZERO } from '../../shared/inventory/quantity';
@@ -21,7 +21,7 @@ import './availability.css';
 /* ------------------------------------------------------------------ copy */
 
 /** Reasons that stop a firm answer, versus notes that only explain how the answer was reached. */
-const NOTE_REASONS: ReadonlySet<string> = new Set(['ACCEPTED_CALIBRATION', 'RANGE_DEMAND', 'ESTIMATED_STOCK']);
+const NOTE_REASONS: ReadonlySet<string> = new Set(['ACCEPTED_CALIBRATION', 'RANGE_DEMAND', 'ESTIMATED_STOCK', 'OZ_ASSUMED_WEIGHT']);
 const trackedAs = (dim: StockDimension) => dim === 'mass' ? 'weight' : dim === 'volume' ? 'volume' : `a count of ${DIMENSION_LABELS[dim].toLowerCase()}`;
 const conversionExample = (dim: StockDimension) => dim === 'mass' ? '1 cup = 120 g' : dim === 'volume' ? '100 g = 1 cup' : '1 cup = 5 eggs';
 
@@ -29,7 +29,8 @@ export function reasonCopy(code: string, dim: StockDimension): string {
   switch (code) {
     case 'UNKNOWN_UNIT': return 'The recipe uses a unit we don’t recognise, so it can’t be compared. Edit the recipe to use g, mL, cups, spoons or a count.';
     case 'MEASURE_PROFILE_AMBIGUOUS': return 'Cups and spoons differ by region — choose your measuring convention in Inventory';
-    case 'AMBIGUOUS_OUNCE': return '“oz” could mean weight or fluid ounces. Edit the recipe to say “oz” for weight or “fl oz” for liquids.';
+    case 'AMBIGUOUS_OUNCE': return '“oz” could mean weight or fluid ounces, and this item isn’t tracked in a way that decides it. Change the recipe line to “fl oz” for a liquid, or to grams or pounds, or skip the line.';
+    case 'OZ_ASSUMED_WEIGHT': return 'Counted “oz” as weight because you track this by weight.';
     case 'UNQUANTIFIED': return 'No exact amount (e.g. ‘to taste’) — exclude it or it can’t be confirmed';
     case 'DIM_MISMATCH_NO_CONVERSION': return `The recipe measures this differently from how you track it (${trackedAs(dim)}) — add a conversion like ${conversionExample(dim)}`;
     case 'CALIBRATION_UNACCEPTED': return 'A conversion for this item exists but hasn’t been accepted yet, so it isn’t used.';
@@ -50,19 +51,22 @@ function VerdictIcon({ verdict, size = 16 }: { verdict: InvVerdict; size?: numbe
 }
 
 /** Stock quantities are integer base units; only the shared formatter turns them into words. */
+const sameAmount = (range: InvRange, dim: StockDimension) => range.lo === range.hi || formatStock(range.lo, dim) === formatStock(range.hi, dim);
 function amountText(range: InvRange, dim: StockDimension, complete: boolean): string {
   const low = formatStock(range.lo, dim);
-  if (!complete) return `at least ${low}`;
-  return range.lo === range.hi ? low : `${low} to ${formatStock(range.hi, dim)}`;
+  if (!complete) return range.lo === 0 ? 'Amount unclear' : `at least ${low}`;
+  return sameAmount(range, dim) ? low : `${low} to ${formatStock(range.hi, dim)}`;
 }
-function shortText(range: InvRange, dim: StockDimension): string {
+/** A single amount when the shortage is known exactly; a range only when it really is one. */
+function shortText(range: InvRange, dim: StockDimension, atLeast: boolean): string {
   const low = formatStock(range.lo, dim);
-  if (range.lo === range.hi) return `about ${low}`;
-  return range.lo === 0 ? `up to ${formatStock(range.hi, dim)}` : `at least ${low}, possibly up to ${formatStock(range.hi, dim)}`;
+  if (atLeast) return `Short by at least ${low}`;
+  if (sameAmount(range, dim)) return `Short by ${low}`;
+  return range.lo === 0 ? `Short by up to ${formatStock(range.hi, dim)}` : `Short by between ${low} and ${formatStock(range.hi, dim)}`;
 }
 /** Shopping wording: a plain amount, or the range when the shortage itself is uncertain. */
 function buyText(range: InvRange, dim: StockDimension): string {
-  if (range.lo === range.hi) return formatStock(range.lo, dim);
+  if (sameAmount(range, dim)) return formatStock(range.lo, dim);
   return range.lo === 0 ? `up to ${formatStock(range.hi, dim)}` : `${formatStock(range.lo, dim)} to ${formatStock(range.hi, dim)}`;
 }
 function taskTitle(item: AvailabilityItem): string {
@@ -94,7 +98,7 @@ export function PantryCheck(props: { record: FamilyRecord<'recipe'>; servings: n
 }
 
 function PantryPanel({ record, servings, validServings }: { record: FamilyRecord<'recipe'>; servings: number; validServings: boolean }) {
-  const { modules, user, addRecord, refresh } = useFamily();
+  const { modules, user, addRecord, refresh, records } = useFamily();
   const recipe = record.data;
   const uid = useId();
   const tasksOn = modules.some(module => module.id === 'tasks' && module.enabled);
@@ -160,6 +164,8 @@ function PantryPanel({ record, servings, validServings }: { record: FamilyRecord
     } finally { if (alive.current && mine === seq.current) setBusy(false); }
   }
 
+  /** Open tasks already on the list, so a second tap on "Add to Tasks" doesn't quietly double them. */
+  const openTasks = useMemo(() => new Set(records.flatMap(other => other.kind === 'task' && !other.data.done ? [sameTitle(other.data.title)] : [])), [records]);
   const shortages = done && !stale ? done.data.items.filter(item => item.verdict === 'insufficient' && item.short) : [];
   const toAdd = shortages.filter(item => !added.has(taskTitle(item)));
 
@@ -254,8 +260,15 @@ function PantryPanel({ record, servings, validServings }: { record: FamilyRecord
       onChanged={kind => { setEpoch(value => value + 1); setStatus(kind === 'cooked' ? `Recorded what you used for ${recipe.title}. Check the pantry again for a current answer.` : `Put back what was used for ${recipe.title}. Check the pantry again for a current answer.`); }} />)}
     {dialog?.kind === 'match' && portal(<MatchDialog name={dialog.name} onClose={() => { setDialog(null); }} onDone={message => changed(message)} />)}
     {dialog?.kind === 'convert' && portal(<ConvertDialog item={dialog.item} onClose={() => setDialog(null)} onDone={message => changed(message)} />)}
-    {dialog?.kind === 'tasks' && portal(<TasksDialog titles={toAdd.map(taskTitle)} addTask={title => addRecord('task', { title, done: false }).then(() => undefined)} onClose={() => setDialog(null)}
-      onFinished={(titles, all) => { setAdded(previous => new Set([...previous, ...titles])); if (all) { setDialog(null); setStatus(`Added ${count(titles.length, 'task', 'tasks')} to Tasks.`); setFocusId(`${uid}-add-tasks`); } }} />)}
+    {dialog?.kind === 'tasks' && portal(<TasksDialog titles={toAdd.map(taskTitle)} onList={openTasks} addTask={title => addRecord('task', { title, done: false }).then(() => undefined)} onClose={() => setDialog(null)}
+      onFinished={(titles, skipped, all) => {
+        setAdded(previous => new Set([...previous, ...titles, ...skipped]));
+        if (all) {
+          setDialog(null);
+          setStatus(`${titles.length ? `Added ${count(titles.length, 'task', 'tasks')} to Tasks.` : 'Nothing new to add.'}${skipped.length ? ` Left out ${skipped.length} that ${skipped.length === 1 ? 'was' : 'were'} already on your list.` : ''}`);
+          setFocusId(`${uid}-add-tasks`);
+        }
+      }} />)}
   </section>;
 }
 
@@ -280,7 +293,7 @@ function ItemRow({ item, stale, uid, lineText, lineName, excluded, onToggle, onC
       <div><dt>Need</dt><dd>{amountText(item.need, item.dim, item.needComplete)}</dd></div>
       <div><dt>You have</dt><dd>{amountText(item.have, item.dim, item.haveComplete)}</dd></div>
     </dl>
-    {showShort && <p className="pantry-short"><TriangleAlert size={15} aria-hidden="true" />Short by {shortText(item.short!, item.dim)}</p>}
+    {showShort && <p className="pantry-short"><TriangleAlert size={15} aria-hidden="true" /><span>{shortText(item.short!, item.dim, !item.needComplete)}{amountText(item.need, item.dim, item.needComplete) === amountText(item.have, item.dim, item.haveComplete) ? ' (too small to show in the amounts above)' : ''}</span></p>}
     {item.lineIndexes.length > 0 && <p className="pantry-soft">From: {item.lineIndexes.map(lineText).join('; ')}</p>}
     {(blocking.length > 0 || notes.length > 0) && <ul className="pantry-reasons" aria-label={`Why, for ${item.itemName}`}>
       {blocking.map(code => <li key={code} data-reason={code}>{reasonCopy(code, item.dim)}</li>)}
@@ -377,6 +390,8 @@ function MatchDialog({ name, onClose, onDone }: { name: string; onClose: () => v
 const ALL_MEASURES: readonly (readonly [string, string])[] = [...MASS_UNITS, ...VOLUME_UNITS];
 
 function sideProblem(value: Amount): AmountProblem | null {
+  const early = amountHint(value.amount, false);
+  if (early) return { field: 'amount', message: early };
   const parsed = parseQuantity(value.amount);
   if (!parsed.ok) return { field: 'amount', message: parsed.reason === 'QUANTITY_LIMIT' ? 'That amount is too large.' : 'Enter one exact amount such as 2, 1/2 or 1.5.' };
   if (compare(parsed.value.lo, parsed.value.hi) !== 0) return { field: 'amount', message: 'Enter one amount, not a range.' };
@@ -437,43 +452,55 @@ function ConvertDialog({ item, onClose, onDone }: { item: { id: string; name: st
   </Modal>;
 }
 
-function TasksDialog({ titles, addTask, onClose, onFinished }: { titles: string[]; addTask: (title: string) => Promise<void>; onClose: () => void; onFinished: (created: string[], all: boolean) => void }) {
+function TasksDialog({ titles, onList, addTask, onClose, onFinished }: { titles: string[]; onList: ReadonlySet<string>; addTask: (title: string) => Promise<void>; onClose: () => void; onFinished: (created: string[], skipped: string[], all: boolean) => void }) {
   const uid = useId();
   const mounted = useRef(true);
   const flight = useRef(false);
+  // Looked at once when the dialog opens: tasks this dialog creates must not turn into "already on your list" mid-way.
+  const [already] = useState<ReadonlySet<string>>(() => new Set(titles.filter(title => onList.has(sameTitle(title)))));
   const [remaining, setRemaining] = useState(titles);
+  const [again, setAgain] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useFocusFirst(`${uid}-confirm`);
+  const duplicates = remaining.filter(title => already.has(title));
+  const todo = again ? remaining : remaining.filter(title => !already.has(title));
   async function confirm() {
-    if (flight.current) return;
+    if (flight.current || todo.length === 0) return;
     flight.current = true; setBusy(true); setError(null);
     const created: string[] = [];
     try {
-      for (const title of remaining) { await addTask(title); created.push(title); }
-      onFinished(created, true);
+      for (const title of todo) { await addTask(title); created.push(title); }
+      onFinished(created, again ? [] : duplicates, true);
     } catch (cause) {
       // Whatever was created stays created; a retry only offers what is left, so nothing is added twice.
       const left = remaining.filter(title => !created.includes(title));
-      if (created.length) onFinished(created, false);
+      if (created.length) onFinished(created, [], false);
       if (mounted.current) { setRemaining(left); setError(`${created.length ? `Added ${count(created.length, 'task', 'tasks')}, but ` : ''}${messageOf(cause)}`); }
     } finally { flight.current = false; if (mounted.current) setBusy(false); }
   }
   return <Modal open onClose={() => { if (!busy) onClose(); }} title="Add shortages to Tasks?" description="Each shortage becomes one ordinary task that your family can see in Tasks. Nothing is added until you confirm.">
     <DialogBody>
       <FamilyFeedback error={error} />
-      <p className="inventory-soft" id={`${uid}-list`}>{count(remaining.length, 'task', 'tasks')} will be created:</p>
-      <ul className="pantry-task-list" aria-labelledby={`${uid}-list`}>{remaining.map(title => <li key={title}>{title}</li>)}</ul>
-      <div className="family-form-actions"><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><Button id={`${uid}-confirm`} onClick={() => void confirm()} busy={busy} disabled={remaining.length === 0}>Add {count(remaining.length, 'task', 'tasks')}</Button></div>
+      <p className="inventory-soft" id={`${uid}-list`}>{todo.length === 0 ? 'Nothing new will be created.' : `${count(todo.length, 'task', 'tasks')} will be created:`}</p>
+      {todo.length > 0 && <ul className="pantry-task-list" aria-labelledby={`${uid}-list`}>{todo.map(title => <li key={title}>{title}</li>)}</ul>}
+      {duplicates.length > 0 && <>
+        <p className="inventory-soft" id={`${uid}-dupes`}>Already on your list: {again ? 'these will be added again.' : 'these will be skipped.'}</p>
+        <ul className="pantry-task-list" aria-labelledby={`${uid}-dupes`}>{duplicates.map(title => <li key={title}>{title}</li>)}</ul>
+        <label className="pantry-toggle" htmlFor={`${uid}-again`}><input id={`${uid}-again`} type="checkbox" checked={again} disabled={busy} onChange={event => setAgain(event.target.checked)} /><span>Add {duplicates.length === 1 ? 'it' : 'them'} again anyway</span></label>
+      </>}
+      <div className="family-form-actions"><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><Button id={`${uid}-confirm`} onClick={() => void confirm()} busy={busy} disabled={todo.length === 0}>{todo.length === 0 ? 'Nothing new to add' : `Add ${count(todo.length, 'task', 'tasks')}`}</Button></div>
     </DialogBody>
   </Modal>;
 }
+const sameTitle = (title: string) => title.trim().replace(/\s+/g, ' ').toLowerCase();
 
 /* ------------------------------------------------------------------ cooking: review, confirm, undo */
 
 type CookState = { included: boolean; edited: boolean; amount: string; unit: string | null; profile: MeasurementProfile | ''; overrides: Readonly<Record<string, string>> };
 const freshCook = (): CookState => ({ included: true, edited: false, amount: '', unit: null, profile: '', overrides: {} });
+const PAUSED_WRITE = 'Inventory is turned off right now, so nothing was taken out of stock. Your inventory is kept for when it’s back on.';
 const CONVENTION_NEEDED = 'Cups, spoons and fluid ounces differ by region. Choose a measuring convention first.';
 
 /** Whole-number counts, 1 kg or 1 L show in the bigger unit; everything else in g or mL, so a prefill reads as a person would write it. */
@@ -498,6 +525,8 @@ function sizeText(qty: number, size: number | null): string {
 }
 function parseAmount(text: string, unit: string, profile: MeasurementProfile | '', dim: StockDimension, allowZero: boolean): { ok: true; qty: number } | { ok: false; message: string; field: 'amount' | 'profile' } {
   if (needsConvention(unit) && !profile) return { ok: false, message: CONVENTION_NEEDED, field: 'profile' };
+  const early = amountHint(text, false);
+  if (early) return { ok: false, message: early, field: 'amount' };
   try {
     const result = stockQuantity({ amount: text, unit, profile: profile || undefined }, dim, { allowZero });
     return result.ok ? { ok: true, qty: result.qty } : { ok: false, message: result.message, field: 'amount' };
@@ -566,6 +595,9 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
   const { refresh, timezone } = useFamily();
   const refreshFamily = useRef(refresh);
   refreshFamily.current = refresh;
+  // When the server says inventory is off, the family settings are refreshed only once the dialog is dismissed:
+  // refreshing sooner switches the whole panel off, and the dialog (with its explanation) would vanish unread.
+  const settingsStale = useRef(false);
   const alive = useRef(true);
   const seq = useRef(0);
   const focused = useRef(false);
@@ -610,7 +642,7 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
     } catch (cause) {
       if (!alive.current || mine !== seq.current) return;
       const code = statusOf(cause);
-      if (code === 403) { setFatal({ message: 'Inventory is turned off right now, so nothing can be taken out of stock. Your inventory is kept for when it’s back on.', retry: false }); void refreshFamily.current().catch(() => undefined); }
+      if (code === 403) { setFatal({ message: 'Inventory is turned off right now, so nothing can be taken out of stock. Your inventory is kept for when it’s back on.', retry: false }); settingsStale.current = true; }
       else if (code === 404) setFatal({ message: 'This recipe is no longer in your family space, so there is nothing to cook from.', retry: false });
       else if (code === 422) setFatal({ message: 'This recipe is too large to work out exactly. Go back and skip some lines, then check again.', retry: false });
       else if (refetch) setRefetchError(messageOf(cause));
@@ -639,14 +671,27 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
   const itemCount = included.filter(row => row.plan.lots.some(lot => lot.take >= 1)).length;
 
   const undoing = useRef(false);
-  const write = useWrite(() => { if (!finished.current) void load.current(true); }, (code, cause) => {
-    if (undoing.current && code === 409) return `${messageOf(cause)} Nothing was changed. If the shelf looks different now, recount the lot in Inventory instead.`;
+  const write = useWrite(status => {
+    if (status === 403) {
+      settingsStale.current = true;
+      // Before the cooking is recorded the form has nothing left to offer, so the explanation takes its place and stays until dismissed.
+      if (!finished.current) setFatal({ message: PAUSED_WRITE, retry: false });
+      return;
+    }
+    if (!finished.current) void load.current(true);
+  }, (code, cause) => {
+    if (undoing.current && code === 409) return `${sentence(messageOf(cause))} Nothing was changed. If the shelf looks different now, recount the lot in Inventory instead.`;
     if (undoing.current && code === 404) return 'This cooking can’t be undone any more. Nothing was changed.';
-    if (code === 409) return `${messageOf(cause)} We checked your pantry again. Your amounts are still here, so look them over and try again.`;
+    if (code === 409) return `${sentence(messageOf(cause))} We checked your pantry again. Your amounts are still here, so look them over and try again.`;
     if (code === 404) return 'This recipe is no longer in your family space. Nothing was taken out of stock.';
-    if (code === 403) return 'Inventory is turned off right now, so nothing was taken out of stock. Your inventory is kept for when it’s back on.';
+    if (code === 403) return PAUSED_WRITE;
     return undefined;
   });
+  /** Every way out of the dialog comes through here, so a pending settings refresh happens after the person has read the message. */
+  const dismiss = (changed: boolean) => {
+    if (settingsStale.current) { settingsStale.current = false; void refreshFamily.current().catch(() => undefined); }
+    onClose(changed);
+  };
 
   useEffect(() => {
     if (focused.current || !preview || lines.length === 0) return;
@@ -655,6 +700,9 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
     return () => cancelAnimationFrame(frame);
   }, [preview, lines.length, uid]);
   useEffect(() => { if (done || undone) doneHeading.current?.focus(); }, [done, undone]);
+  // A button that was just pressed can disappear (the form on a refusal, Undo once it is refused): keep focus inside the dialog.
+  useEffect(() => { if (fatal) { const frame = requestAnimationFrame(() => document.getElementById(`${uid}-fatal-close`)?.focus()); return () => cancelAnimationFrame(frame); } }, [fatal, uid]);
+  useEffect(() => { if (refused && !undone) { const frame = requestAnimationFrame(() => document.getElementById(`${uid}-done`)?.focus()); return () => cancelAnimationFrame(frame); } }, [refused, undone, uid]);
 
   async function submit() {
     if (blocked) {
@@ -691,7 +739,7 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
 
   const title = done ? (undone ? 'Put back' : 'Recorded') : 'Cook this';
   const description = done ? undefined : `Review what you actually used${preview ? ` for ${preview.recipeTitle}` : ''}. Nothing leaves your stock until you confirm.`;
-  const busyClose = () => { if (!write.busy) onClose(changedAny.current); };
+  const busyClose = () => { if (!write.busy) dismiss(changedAny.current); };
 
   let explain = '';
   if (!blocked && takes.length === 0) {
@@ -706,7 +754,7 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{status}</div>
       {fatal && <>
         <FamilyFeedback error={fatal.message} />
-        <div className="family-form-actions"><Button variant="secondary" onClick={() => onClose(changedAny.current)}>Close</Button>{fatal.retry && <Button onClick={() => { setFatal(null); void load.current(false); }}>Try again</Button>}</div>
+        <div className="family-form-actions"><Button id={`${uid}-fatal-close`} variant="secondary" onClick={() => dismiss(changedAny.current)}>Close</Button>{fatal.retry && <Button onClick={() => { setFatal(null); void load.current(false); }}>Try again</Button>}</div>
       </>}
       {!fatal && !preview && loading && <p className="inventory-soft" role="status">Working out what to take…</p>}
 
@@ -723,7 +771,7 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
         {refused && !undone && <p className="inventory-soft">Undo only works while nothing else has changed those lots. You can recount them from Inventory.</p>}
         <div className="family-form-actions">
           {!undone && !refused && <Button variant="secondary" onClick={() => void undo()} busy={write.busy}><Undo2 size={16} aria-hidden="true" />Undo</Button>}
-          <Button onClick={() => onClose(true)} disabled={write.busy}>Done</Button>
+          <Button id={`${uid}-done`} onClick={() => dismiss(true)} disabled={write.busy}>Done</Button>
         </div>
       </div>}
 
@@ -771,11 +819,12 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
                           const alloc = lot.alloc;
                           const place = where(alloc);
                           const past = alloc.date !== null && alloc.date < today;
-                          const label = `${alloc.enteredText || formatStock(alloc.available, line.dim)}${place ? `, ${place}` : ''}`;
+                          const entered = alloc.enteredText ? prettyEntered(alloc.enteredText) : formatStock(alloc.available, line.dim);
+                          const label = `${entered}${place ? `, ${place}` : ''}`;
                           const lotProblem = lot.problem && (st.overrides[alloc.lotId] !== undefined) ? lot.problem : null;
                           return <li key={alloc.lotId} className="cook-lot">
                             <div className="cook-lot-top">
-                              <strong>{alloc.precision === 'estimated' ? 'About ' : ''}{alloc.enteredText || formatStock(alloc.available, line.dim)}</strong>
+                              <strong>{alloc.precision === 'estimated' ? 'About ' : ''}{entered}</strong>
                               {alloc.precision === 'estimated' && <Badge tone="amber">Estimated</Badge>}
                               {past && <Badge tone="rose">Past date</Badge>}
                               {updated.has(alloc.lotId) && <Badge tone="neutral">Changed just now</Badge>}

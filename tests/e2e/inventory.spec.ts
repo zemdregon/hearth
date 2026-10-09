@@ -278,8 +278,8 @@ test.describe('Inventory on the real Worker and local D1', () => {
     const reloads: string[] = [];
     page.on('request', req => { if (req.method() === 'GET' && new URL(req.url()).pathname === '/api/inventory') reloads.push(req.url()); });
     await dialog.getByRole('button', { name: 'Remove from stock' }).click();
-    await expect(dialog.getByRole('alert')).toContainText('Inventory changed');
-    await expect(dialog.getByRole('alert')).toContainText('your entries are still here');
+    await expect(dialog.getByRole('alert')).toContainText('Something changed in inventory');
+    await expect(dialog.getByRole('alert')).toContainText('what you entered is still here');
     await expect(dialog.getByLabel('How much did you use?')).toHaveValue('100');
     await expect.poll(() => reloads.length).toBeGreaterThan(0);
     await dialog.getByRole('button', { name: 'Remove from stock' }).click();
@@ -326,6 +326,17 @@ function populated(): InventoryState {
     aliases: [], calibrations: [], settings: { measureProfile: null, version: 1 },
   };
 }
+/** The usual fixture plus stock that was used up, and 250 g of flour that is past its use-by date. */
+function withUsedUp(): InventoryState {
+  const state = populated();
+  const lot = (id: string, itemId: string, qty: number, extra: Partial<InventoryState['lots'][number]> = {}) =>
+    ({ id, itemId, locationId: null, qty, precision: 'exact' as const, estBp: 0, enteredText: '', dateKind: null, date: null, note: '', version: 1, createdAt: 1_700_000_000, updatedAt: 1_700_000_000, ...extra });
+  state.lots.push(
+    lot('lot-eggs-0', 'item-eggs', 0, { enteredText: '12 egg' }), lot('lot-eggs-00', 'item-eggs', 0, { enteredText: '1 egg' }), lot('lot-flour-0', 'item-flour', 0, { enteredText: '2 oz-mass' }),
+    lot('lot-flour-old', 'item-flour', 250_000_000_000, { dateKind: 'use_by', date: PAST }),
+  );
+  return state;
+}
 function family(): Bootstrap {
   const base = createDemo();
   return { ...base, demo: false, modules: base.modules.map(module => ({ ...module, enabled: true })) };
@@ -357,13 +368,125 @@ test.describe('Inventory page with fixed data', () => {
     await expect(flour.locator('.inventory-lot').filter({ hasText: 'About 400 g' })).toContainText('Past date');
     await expect(flour.locator('.inventory-lot').filter({ hasText: 'About 400 g' })).toContainText('Estimated, give or take 25%');
     const milk = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Whole milk' }) });
-    await expect(milk.getByText('1 L in total')).toBeVisible();
+    // Past its use-by date: not counted, but not hidden either.
+    await expect(milk.getByText('Nothing in date, plus 1 L past use-by, not counted')).toBeVisible();
     await expect(milk).toContainText('Use by Jan 1, 2020');
     await expect(milk).toContainText('Past date');
     await expect(page.getByText('6 eggs in total')).toBeVisible();
     await expect(page.getByText('No set place')).toBeVisible();
     await expect(page.locator('main')).not.toContainText(/\bng\b|\bnL\b|txn/i);
   });
+
+  test('keeps used-up stock out of the way, and keeps stock past its use-by date out of the total', async ({ page }) => {
+    await openMocked(page, { state: withUsedUp() });
+    await expect(page.getByText('4 items · 5 stock entries · 1 estimated · 3 past their dates')).toBeVisible();
+    const eggs = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Eggs', level: 2 }) });
+    await expect(eggs.getByText('6 eggs in total')).toBeVisible();
+    // Used-up lots are folded away, never shown as "About 0".
+    await expect(eggs.getByRole('button', { name: /Show 2 used-up lots/ })).toBeVisible();
+    const toggle = eggs.locator('.inventory-used-up > button');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(eggs.locator('.inventory-lot:visible')).toHaveCount(1);
+    expect(await page.evaluate(() => document.body.innerText)).not.toMatch(/About 0|\b0 eggs\b|\b0 g\b|Used up/);
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggle).toBeFocused();
+    await expect(toggle).toContainText('Hide 2 used-up lots');
+    await expect(eggs.locator('.inventory-lot:visible')).toHaveCount(3);
+    await expect(eggs.locator('.inventory-lot.is-used-up').first()).toContainText('Used up');
+    await expect(eggs.locator('.inventory-lot.is-used-up').first()).toContainText('Added as 12 eggs');
+    await expect(eggs.locator('.inventory-lot.is-used-up').nth(1)).toContainText('Added as 1 egg');
+    await expect(eggs.locator('.inventory-lot.is-used-up').first().getByRole('button', { name: /^Archive / })).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // 1.5 kg + about 400 g counted; the 250 g past its use-by date is mentioned, not added.
+    const flour = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plain flour', level: 2 }) });
+    await expect(flour.getByText('About 1.9 kg in total (estimated), plus 250 g past use-by, not counted')).toBeVisible();
+    await expect(flour.getByRole('button', { name: /Show 1 used-up lot$|Show 1 used-up lot of/ })).toBeVisible();
+    await expect(page.locator('main')).not.toContainText(/oz-mass/);
+  });
+
+  test('says when nothing is left or nothing is in date', async ({ page }) => {
+    const state = withUsedUp();
+    state.lots = state.lots.filter(lot => !(lot.qty > 0 && (lot.itemId === 'item-flour' || lot.itemId === 'item-eggs')));
+    await openMocked(page, { state });
+    const flour = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plain flour', level: 2 }) });
+    await expect(flour.getByText('Nothing in stock right now')).toBeVisible();
+    const eggs = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Eggs', level: 2 }) });
+    await expect(eggs.getByText('Nothing in stock right now')).toBeVisible();
+    expect(await page.evaluate(() => document.body.innerText)).not.toMatch(/About 0|\b0 eggs\b|\b0 g\b/);
+  });
+
+  test('guides an estimate to a single best guess, and suggests a point for a decimal comma', async ({ page }) => {
+    await openMocked(page);
+    await page.getByRole('button', { name: 'Add stock for Plain flour' }).click();
+    const dialog = dialogOf(page);
+    const hint = 'Enter your best single guess, e.g. 1.5 — the spread is set by how rough it is';
+    await expect(dialog.getByText(hint)).toHaveCount(0);
+    await dialog.getByRole('radio', { name: /estimate/ }).check();
+    await expect(dialog.getByText(hint)).toBeVisible();
+    await dialog.getByLabel('Amount', { exact: true }).fill('1-2');
+    await expect(dialog.getByRole('alert')).toContainText('An estimate is one best guess, like 1.5, not a range.');
+    await expect(dialog.getByRole('alert')).not.toContainText('Mark stock as estimated');
+    await dialog.getByLabel('Amount', { exact: true }).fill('1,5');
+    await expect(dialog.getByRole('alert')).toContainText('Use a point for decimals: 1.5 instead of 1,5.');
+    await dialog.getByLabel('Amount', { exact: true }).fill('1.5');
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+    // Without “estimate” a decimal comma is explained when the form is sent, and a range keeps the usual message.
+    await dialog.getByRole('radio', { name: /measured/ }).check();
+    await expect(dialog.getByText(hint)).toHaveCount(0);
+    await dialog.getByLabel('Amount', { exact: true }).fill('1,5');
+    await dialog.getByRole('button', { name: 'Add stock' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Use a point for decimals: 1.5 instead of 1,5.');
+    await dialog.getByLabel('Amount', { exact: true }).fill('1,000');
+    await expect(dialog.getByRole('alert')).toContainText('Leave out the comma, like 1000.');
+  });
+
+  test('a conflict from the server reads naturally with the sentence we add after it', async ({ page }) => {
+    await openMocked(page);
+    await page.route('**/api/inventory/lots', route => route.fulfill({ status: 409, json: { error: 'Someone just changed this stock' } }));
+    await page.getByRole('button', { name: 'Add stock for Plain flour' }).click();
+    const dialog = dialogOf(page);
+    await dialog.getByLabel('Amount', { exact: true }).fill('2');
+    await dialog.getByRole('button', { name: 'Add stock' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Someone just changed this stock. Your list is up to date now, and what you entered is still here.');
+    await expect(dialog.getByRole('alert')).not.toContainText('Refresh');
+  });
+
+  test('stock history names the item with the amount, says “about” for estimates and does not repeat the kind', async ({ page }) => {
+    const entry = (seq: number, over: Partial<InvLedgerEntry>): InvLedgerEntry => ({ seq, txnId: `txn-${seq}-padding`, kind: 'add', memberId: 'sam', lotId: 'lot-eggs', itemId: 'item-eggs', itemName: 'Eggs', dim: 'count:egg', delta: 1, qtyAfter: 6, reason: '', createdAt: 1_700_000_000 + seq, ...over });
+    const entries = [
+      entry(3, { kind: 'add', lotId: 'lot-flour-2', itemId: 'item-flour', itemName: 'Plain flour', dim: 'mass', delta: 400_000_000_000, qtyAfter: 400_000_000_000, reason: 'Added — Added' }),
+      entry(2, { kind: 'archive', lotId: 'lot-flour-1', itemId: 'item-flour', itemName: 'Plain flour', dim: 'mass', delta: -100_000_000_000, qtyAfter: 0, reason: 'Archived — Past its date' }),
+      entry(1, { kind: 'adjust', reason: 'Made soup' }),
+    ];
+    await openMocked(page);
+    await page.route('**/api/inventory/ledger**', route => route.fulfill({ json: { entries, next: null } }));
+    await page.getByRole('button', { name: 'History', exact: true }).click();
+    const rows = dialogOf(page).getByRole('list', { name: 'Stock history' }).getByRole('listitem');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0).locator('.inventory-history-line')).toHaveText('+400 g of Plain flour · now about 400 g');
+    await expect(rows.nth(0)).toContainText('Added');
+    await expect(rows.nth(1).locator('.inventory-history-line')).toHaveText('−100 g of Plain flour · now 0 g · Past its date');
+    await expect(rows.nth(2).locator('.inventory-history-line')).toHaveText('+1 egg of Eggs · now 6 eggs · Made soup');
+  });
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`used-up lots and past use-by notes have no accessibility problems and comfortable targets in ${scheme} mode`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 320, height: 800 });
+      await openMocked(page, { state: withUsedUp() });
+      await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+      await expect(page.getByRole('button', { name: /Show \d+ used-up lots?/ })).toHaveCount(2);
+      while (await page.getByRole('button', { name: /Show \d+ used-up lots?/ }).count()) await page.getByRole('button', { name: /Show \d+ used-up lots?/ }).first().click();
+      await expect(page.getByRole('button', { name: /Hide \d+ used-up lots?/ })).toHaveCount(2);
+      await axe(page, '#main-content', `${scheme} page with used-up lots open`);
+      expect(await noOverflow(page)).toBe(true);
+      const small = await page.locator('.inventory-module .button').evaluateAll(elements => elements.filter(element => element.getBoundingClientRect().height > 0 && element.getBoundingClientRect().height < 43.5).length);
+      expect(small).toBe(0);
+    });
+  }
 
   test('shows a paused message and asks the family for fresh module settings when the module is off', async ({ page }) => {
     let bootstraps = 0;

@@ -20,11 +20,11 @@ const recipe: Recipe = {
 };
 const record: FamilyRecord<'recipe'> = { id: RECIPE_ID, kind: 'recipe', data: recipe, ownerId: 'alex', version: 1, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z' };
 
-type FamilyOptions = { off?: ModuleId[]; role?: 'admin' | 'member' };
+type FamilyOptions = { off?: ModuleId[]; role?: 'admin' | 'member'; tasks?: { title: string; done: boolean }[] };
 function family(options: FamilyOptions = {}): Bootstrap {
   const base = createDemo();
   const user = options.role === 'member' ? base.members[1] : base.user;
-  return { ...base, demo: false, user, modules: base.modules.map(module => ({ ...module, enabled: !options.off?.includes(module.id) })), records: [...base.records.filter(r => r.kind !== 'recipe'), record] };
+  return { ...base, demo: false, user, modules: base.modules.map(module => ({ ...module, enabled: !options.off?.includes(module.id) })), records: [...base.records.filter(r => r.kind !== 'recipe'), record, ...(options.tasks ?? []).map((task, index): FamilyRecord<'task'> => ({ id: `task-existing-${index}`, kind: 'task', data: task, ownerId: 'alex', version: 1, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z' }))] };
 }
 
 const G = 1_000_000_000; // 1 g in the wire's integer ng
@@ -196,10 +196,11 @@ test.describe('Pantry check on a recipe', () => {
     await expect(panel(page)).toContainText('Short on 2 items for 4 servings.');
     const flour = panel(page).getByRole('listitem').filter({ hasText: 'Plain flour' });
     await expect(flour).toContainText('Not enough');
-    await expect(flour).toContainText('Short by about 250 g');
+    await expect(flour).toContainText('Short by 250 g');
+    await expect(flour).not.toContainText('Short by about');
     const milk = panel(page).getByRole('listitem').filter({ hasText: 'Whole milk' });
     await expect(milk).toContainText('240 mL to 250 mL');
-    await expect(milk).toContainText('Short by at least 140 mL, possibly up to 150 mL');
+    await expect(milk).toContainText('Short by between 140 mL and 150 mL');
     await expect(milk).toContainText('The recipe gives a range of amounts');
 
     await panel(page).getByRole('button', { name: 'Copy shortages' }).click();
@@ -227,6 +228,87 @@ test.describe('Pantry check on a recipe', () => {
     await expect(panel(page).getByRole('button', { name: 'Added to Tasks' })).toBeDisabled();
   });
 
+  test('prints one amount when it is exact and a range only when it is one', async ({ page }) => {
+    const MLs = (n: number) => Math.round(n * ML);
+    await mock(page, {
+      availability: [{
+        json: result({
+          verdict: 'insufficient',
+          items: [
+            // Outward rounding makes lo and hi differ by a nanolitre or two: that is still one amount to a person.
+            item({ itemId: 'item-milk', itemName: 'Whole milk', dim: 'volume', lineIndexes: [2], verdict: 'insufficient', need: { lo: MLs(354.8819), hi: MLs(354.8823) }, have: exact(MLs(118.294)), short: { lo: MLs(236.5876), hi: MLs(236.5884) } }),
+            item({ itemId: 'item-eggs', itemName: 'Eggs', dim: 'count:egg', lineIndexes: [1], verdict: 'insufficient', need: exact(5), have: exact(3), short: exact(2) }),
+            item({ itemId: 'item-salt', itemName: 'Salt', lineIndexes: [4], verdict: 'insufficient', need: { lo: 100 * G, hi: 150 * G }, have: exact(50 * G), short: { lo: 0, hi: 100 * G } }),
+            item({ itemName: 'Plain flour', verdict: 'unknown', reasons: ['UNQUANTIFIED'], needComplete: false, need: exact(0), have: exact(1500 * G) }),
+          ],
+        }),
+      }],
+    });
+    await openRecipe(page);
+    await runCheck(page);
+    const milk = panel(page).getByRole('listitem').filter({ hasText: 'Whole milk' });
+    await expect(milk.locator('dd').first()).toHaveText('354.882 mL');
+    await expect(milk).toContainText('Short by 236.588 mL');
+    await expect(milk).not.toContainText(' to ');
+    await expect(milk).not.toContainText('at least');
+    const eggs = panel(page).getByRole('listitem').filter({ hasText: 'Eggs' });
+    await expect(eggs).toContainText('Short by 2 eggs');
+    await expect(eggs).not.toContainText('about');
+    const salt = panel(page).getByRole('listitem').filter({ hasText: 'Salt' });
+    await expect(salt).toContainText('100 g to 150 g');
+    await expect(salt).toContainText('Short by up to 100 g');
+    const flour = panel(page).getByRole('listitem').filter({ hasText: 'Plain flour' });
+    await expect(flour.locator('dd').first()).toHaveText('Amount unclear');
+    await expect(flour).not.toContainText('at least 0');
+    await expect(panel(page)).not.toContainText(/at least 0|NEED at least/i);
+  });
+
+  test('says “at least” only when the need itself is a lower bound', async ({ page }) => {
+    await mock(page, {
+      availability: [{ json: result({ verdict: 'insufficient', items: [item({ verdict: 'insufficient', reasons: ['UNQUANTIFIED'], needComplete: false, need: exact(500 * G), have: exact(250 * G), short: exact(250 * G) })] }) }],
+    });
+    await openRecipe(page);
+    await runCheck(page);
+    await expect(panel(page).getByRole('listitem').filter({ hasText: 'Plain flour' })).toContainText('Short by at least 250 g');
+  });
+
+  test('lists tasks that are already on the list, skips them by default, and can add them again on request', async ({ page }) => {
+    const tasks = [{ title: 'Buy: Plain flour (250 g)', done: false }, { title: 'Buy: Whole milk (140 mL to 150 mL)', done: true }];
+    const api = await mock(page, { tasks, availability: [{ json: insufficient() }] });
+    await openRecipe(page);
+    await runCheck(page);
+    await panel(page).getByRole('button', { name: 'Add to Tasks' }).click();
+    const dialog = dialogOf(page);
+    // Only the open task counts: the milk one was finished, so it is offered again.
+    await expect(dialog.getByText('Already on your list: these will be skipped.')).toBeVisible();
+    await expect(dialog.getByRole('list', { name: /Already on your list/ })).toContainText('Buy: Plain flour (250 g)');
+    await expect(dialog.getByRole('list', { name: /Already on your list/ }).getByRole('listitem')).toHaveCount(1);
+    await expect(dialog.getByText('1 task will be created:')).toBeVisible();
+    await expect(dialog.getByRole('list', { name: '1 task will be created:' })).toContainText('Buy: Whole milk (140 mL to 150 mL)');
+    await dialog.getByRole('button', { name: 'Add 1 task' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.ofPath('/api/records').map(call => call.body)).toEqual([{ kind: 'task', data: { title: 'Buy: Whole milk (140 mL to 150 mL)', done: false } }]);
+    await expect(panel(page).locator('[aria-live="polite"]')).toHaveText('Added 1 task to Tasks. Left out 1 that was already on your list.');
+    await expect(panel(page).getByRole('button', { name: 'Added to Tasks' })).toBeDisabled();
+  });
+
+  test('a person can still add the duplicates, and with nothing new the button says so', async ({ page }) => {
+    const tasks = [{ title: 'Buy: Plain flour (250 g)', done: false }, { title: 'Buy: Whole milk (140 mL to 150 mL)', done: false }];
+    const api = await mock(page, { tasks, availability: [{ json: insufficient() }] });
+    await openRecipe(page);
+    await runCheck(page);
+    await panel(page).getByRole('button', { name: 'Add to Tasks' }).click();
+    const dialog = dialogOf(page);
+    await expect(dialog.getByText('Nothing new will be created.')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Nothing new to add' })).toBeDisabled();
+    await expect(dialog.getByRole('list', { name: /Already on your list/ }).getByRole('listitem')).toHaveCount(2);
+    await dialog.getByRole('checkbox', { name: 'Add them again anyway' }).check();
+    await expect(dialog.getByText('Already on your list: these will be added again.')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Add 2 tasks' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.ofPath('/api/records').map(call => (call.body as { data: { title: string } }).data.title)).toEqual(['Buy: Plain flour (250 g)', 'Buy: Whole milk (140 mL to 150 mL)']);
+  });
+
   test('offers no task button when Tasks is off, and a manual copy box when the clipboard is unavailable', async ({ page }) => {
     await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); });
     await mock(page, { off: ['tasks'], availability: [{ json: insufficient() }] });
@@ -245,7 +327,7 @@ test.describe('Pantry check on a recipe', () => {
           verdict: 'unknown',
           items: [
             item({ verdict: 'unknown', reasons: ['UNQUANTIFIED', 'MEASURE_PROFILE_AMBIGUOUS'], needComplete: false, lineIndexes: [0, 4] }),
-            item({ itemId: 'item-milk', itemName: 'Whole milk', dim: 'volume', lineIndexes: [2], verdict: 'unknown', reasons: ['DIM_MISMATCH_NO_CONVERSION', 'UNKNOWN_UNIT'], need: exact(0), have: exact(1000 * ML) }),
+            item({ itemId: 'item-milk', itemName: 'Whole milk', dim: 'volume', lineIndexes: [2], verdict: 'unknown', reasons: ['DIM_MISMATCH_NO_CONVERSION', 'UNKNOWN_UNIT', 'OZ_ASSUMED_WEIGHT'], need: exact(0), have: exact(1000 * ML) }),
             item({ itemId: 'item-eggs', itemName: 'Eggs', dim: 'count:egg', lineIndexes: [1], verdict: 'unknown', reasons: ['AMBIGUOUS_OUNCE', 'CALIBRATION_UNACCEPTED', 'CALIBRATION_CONFLICT', 'INTERVAL_OVERLAP', 'ACCEPTED_CALIBRATION', 'ESTIMATED_STOCK'], need: { lo: 2, hi: 3 }, have: { lo: 2, hi: 4 }, haveComplete: false }),
           ],
         }),
@@ -261,7 +343,10 @@ test.describe('Pantry check on a recipe', () => {
     await expect(area.getByText('Cups and spoons differ by region — choose your measuring convention in Inventory')).toBeVisible();
     await expect(area.getByText('The recipe measures this differently from how you track it (volume) — add a conversion like 100 g = 1 cup')).toBeVisible();
     await expect(area.getByText(/We don’t recognise|unit we don’t recognise/)).toBeVisible();
-    await expect(area.getByText(/“oz” could mean weight or fluid ounces/)).toBeVisible();
+    await expect(area.getByText('“oz” could mean weight or fluid ounces, and this item isn’t tracked in a way that decides it. Change the recipe line to “fl oz” for a liquid, or to grams or pounds, or skip the line.')).toBeVisible();
+    await expect(area.getByText(/Edit the recipe to say “oz” for weight/)).toHaveCount(0);
+    await expect(area.getByText('Counted “oz” as weight because you track this by weight.')).toBeVisible();
+    await expect(area.locator('li[data-reason="OZ_ASSUMED_WEIGHT"]')).toHaveClass(/note/);
     await expect(area.getByText(/hasn’t been accepted yet/)).toBeVisible();
     await expect(area.getByText(/Two conversions for this item disagree/)).toBeVisible();
     await expect(area.getByText(/too close to call/)).toBeVisible();
@@ -600,6 +685,24 @@ test.describe('Recipe matching on the Inventory page', () => {
     await expect(section.getByRole('list', { name: 'Accepted conversions' })).toHaveCount(0);
   });
 
+  test('keeps keyboard focus in the list after a match or conversion is removed', async ({ page }) => {
+    await mock(page, { inventory: matched() });
+    await page.goto('/#inventory');
+    const section = page.getByRole('region', { name: 'Recipe matching' });
+    await section.getByRole('button', { name: 'Remove the match for AP flour' }).click();
+    await section.getByRole('button', { name: 'Yes, remove the match for AP flour' }).click();
+    await expect(section.getByText('AP flour')).toHaveCount(0);
+    // The next row's Remove button, not the page body.
+    await expect(section.getByRole('button', { name: 'Remove the match for old thing' })).toBeFocused();
+    await section.getByRole('button', { name: 'Remove the match for old thing' }).click();
+    await section.getByRole('button', { name: 'Yes, remove the match for old thing' }).click();
+    await expect(section.getByRole('list', { name: 'Matched ingredient names' })).toHaveCount(0);
+    await expect(section.getByRole('heading', { name: 'Ingredient names you matched' })).toBeFocused();
+    await section.getByRole('button', { name: /^Remove the conversion 1 cup/ }).click();
+    await section.getByRole('button', { name: /^Yes, remove the conversion/ }).click();
+    await expect(section.getByRole('heading', { name: 'Conversions you accepted' })).toBeFocused();
+  });
+
   test('other members see the convention read-only with an explanation', async ({ page }) => {
     const api = await mock(page, { inventory: matched(), role: 'member' });
     await page.goto('/#inventory');
@@ -708,7 +811,7 @@ real.describe('Pantry check on the real Worker and local D1', () => {
     await expect(panel(page).getByRole('heading', { name: 'This check is out of date' })).toBeVisible();
     await runCheck(page);
     await expect(panel(page).getByRole('heading', { name: 'Not enough yet' })).toBeVisible();
-    await expect(panel(page)).toContainText('Short by about 100 g');
+    await expect(panel(page)).toContainText('Short by 100 g');
     await panel(page).getByRole('button', { name: 'Add to Tasks' }).click();
     await expect(dialog).toContainText('Buy: Plain flour (100 g)');
     await dialog.getByRole('button', { name: 'Add 1 task' }).click();

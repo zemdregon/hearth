@@ -75,13 +75,14 @@ type MockOptions = { preview?: Replies; consume?: Replies; undo?: Replies; entri
 async function mock(page: Page, options: MockOptions = {}) {
   const calls: Call[] = [];
   const inventory = options.inventory ?? stock();
-  const world = { entries: options.entries ?? [], older: options.older ?? [], bootstraps: 0 };
+  const world = { entries: options.entries ?? [], older: options.older ?? [], bootstraps: 0, off: false };
   const counters: Record<string, number> = {};
   const answer = (name: string, replies: Replies, body: Record<string, any>, fallback: Reply): Reply => {
     const reply = replies.length ? replies[Math.min(counters[name] = (counters[name] ?? -1) + 1, replies.length - 1)] : fallback;
     return typeof reply === 'function' ? reply(body) : reply;
   };
-  await page.route('**/api/bootstrap', route => { world.bootstraps++; return route.fulfill({ json: family() }); });
+  // Once the server has answered 403 the module really is off, so a later bootstrap says so (and the panel goes away).
+  await page.route('**/api/bootstrap', route => { world.bootstraps++; return route.fulfill({ json: world.off ? { ...family(), modules: family().modules.map(module => ({ ...module, enabled: module.id !== 'inventory' })) } : family() }); });
   await page.route(url => url.pathname.startsWith('/api/inventory'), async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -90,7 +91,7 @@ async function mock(page: Page, options: MockOptions = {}) {
     try { body = request.postDataJSON() as Record<string, any> | null; } catch { body = null; }
     calls.push({ method: request.method(), path, search: url.search, body });
     const method = request.method();
-    const send = (reply: Reply) => route.fulfill({ status: reply.status ?? 200, json: reply.json });
+    const send = (reply: Reply) => { if (reply.status === 403) world.off = true; return route.fulfill({ status: reply.status ?? 200, json: reply.json }); };
     if (method === 'GET' && path === '/api/inventory') return route.fulfill({ json: inventory });
     if (method === 'POST' && path === '/api/inventory/availability') return send(answer('availability', options.availability ?? [], body ?? {}, { json: available }));
     if (method === 'POST' && path === '/api/inventory/consume/preview') return send(answer('preview', options.preview ?? [], body ?? {}, { json: proposal() }));
@@ -381,6 +382,7 @@ test.describe('Cook this: review and confirm', () => {
     await expect(dialog.getByRole('alert')).toContainText('If the shelf looks different now, recount');
     await expect(dialog.getByRole('button', { name: 'Undo' })).toHaveCount(0);
     await expect(dialog).toContainText('You can recount them from Inventory.');
+    await expect(dialog.getByRole('button', { name: 'Done' })).toBeFocused();
   });
 
   test('a 409 keeps the dialog and the edited amounts, rechecks the pantry, and a new payload gets a new id', async ({ page }) => {
@@ -394,7 +396,7 @@ test.describe('Cook this: review and confirm', () => {
     await used(page, 'Plain flour').fill('250');
     await confirm(page).click();
     const dialog = dialogOf(page);
-    await expect(dialog.getByRole('alert')).toContainText('Inventory changed. Refresh and try again.');
+    await expect(dialog.getByRole('alert')).toContainText('Inventory changed. Refresh and try again. We checked your pantry again.');
     await expect(dialog.getByRole('alert')).toContainText('Your amounts are still here');
     await expect(dialog.getByRole('heading', { name: 'Cook this' })).toBeVisible();
     await expect.poll(() => api.ofPath('/api/inventory/consume/preview').length).toBe(2);
@@ -465,20 +467,64 @@ test.describe('Cook this: review and confirm', () => {
     expect(posts).toHaveLength(1);
   });
 
-  test('a paused module is explained and the family is asked for fresh settings', async ({ page }) => {
-    const api = await mock(page, {
-      preview: [{ json: proposal() }, { status: 403, json: { error: 'This module is disabled.' } }],
-      consume: [{ status: 403, json: { error: 'This module is disabled.' } }],
-    });
+  test('a paused module is explained inside the dialog, and the family settings refresh only after it is dismissed', async ({ page }) => {
+    const api = await mock(page, { consume: [{ status: 403, json: { error: 'This module is disabled.' } }] });
     await openCook(page);
     await fillMilk(page);
+    const loaded = api.world.bootstraps;
     await confirm(page).click();
-    await expect(dialogOf(page).getByRole('alert')).toContainText('Inventory is turned off right now');
-    await expect(dialogOf(page).getByRole('alert')).not.toContainText('This module is disabled.');
+    const dialog = dialogOf(page);
+    await expect(dialog.getByRole('alert')).toContainText('Inventory is turned off right now, so nothing was taken out of stock.');
+    await expect(dialog.getByRole('alert')).not.toContainText('This module is disabled.');
     await expect(confirm(page)).toHaveCount(0);
-    await expect.poll(() => api.world.bootstraps).toBeGreaterThan(1);
-    await dialogOf(page).getByRole('button', { name: 'Close' }).first().click();
-    await expect(dialogOf(page)).toHaveCount(0);
+    // The explanation stays put: nothing refreshed the family (which would switch the panel off under it), and the pantry was not asked again.
+    await page.waitForTimeout(500);
+    expect(api.world.bootstraps).toBe(loaded);
+    expect(api.ofPath('/api/inventory/consume/preview')).toHaveLength(1);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Close' }).last()).toBeFocused();
+    await dialog.getByRole('button', { name: 'Close' }).last().click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => api.world.bootstraps).toBeGreaterThan(loaded);
+    await expect(panel(page)).toHaveCount(0);
+  });
+
+  test('a preview refused because inventory is off keeps its explanation until the dialog is dismissed', async ({ page }) => {
+    const api = await mock(page, { preview: [{ status: 403, json: { error: 'This module is disabled.' } }] });
+    await openRecipe(page);
+    await checkPantry(page);
+    await panel(page).getByRole('button', { name: 'Cook this' }).click();
+    const dialog = dialogOf(page);
+    await expect(dialog.getByRole('alert')).toContainText('Inventory is turned off right now, so nothing can be taken out of stock.');
+    const loaded = api.world.bootstraps;
+    await page.waitForTimeout(500);
+    expect(api.world.bootstraps).toBe(loaded);
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => api.world.bootstraps).toBeGreaterThan(loaded);
+    await expect(panel(page)).toHaveCount(0);
+  });
+
+  test('lot labels read as people write them, never as internal unit tokens', async ({ page }) => {
+    const lot = (lotId: string, enteredText: string, available: number): ConsumeAllocation => ({ lotId, version: 1, enteredText, locationId: null, date: null, dateKind: null, precision: 'exact', available, take: 0 });
+    const lines = [
+      flourLine('Plain flour', [lot('f1', '2 oz-mass', 56_699_000_000), lot('f2', '1 lb', 453_592_000_000)]),
+      { ...eggsLine(), allocations: [lot('e1', '12 egg', 12), lot('e2', '1 egg', 1)] },
+      { ...milkLine(), allocations: [lot('m1', '1 l', 1000 * ML), lot('m2', '1 fl oz', 29_573_000), lot('m3', '2 ml', 2 * ML)] },
+    ];
+    await mock(page, { preview: [{ json: proposal({ lines }) }] });
+    await openCook(page);
+    const flour = line(page, 'Plain flour');
+    await expect(flour.locator('.cook-lot-top strong').nth(0)).toHaveText('2 oz');
+    await expect(flour.locator('.cook-lot-top strong').nth(1)).toHaveText('1 lb');
+    await expect(take(page, 'Plain flour', '2 oz, No set place')).toBeVisible();
+    await expect(line(page, 'Eggs').locator('.cook-lot-top strong').nth(0)).toHaveText('12 eggs');
+    await expect(line(page, 'Eggs').locator('.cook-lot-top strong').nth(1)).toHaveText('1 egg');
+    await expect(line(page, 'Whole milk').locator('.cook-lot-top strong').nth(0)).toHaveText('1 L');
+    await expect(line(page, 'Whole milk').locator('.cook-lot-top strong').nth(1)).toHaveText('1 fl oz');
+    await expect(line(page, 'Whole milk').locator('.cook-lot-top strong').nth(2)).toHaveText('2 mL');
+    await expect(dialogOf(page)).not.toContainText(/oz-mass|\b\d+ l\b|\b12 egg\b/);
   });
 
   test('a preview that fails or is paused says why and can be retried', async ({ page }) => {
@@ -682,9 +728,26 @@ test.describe('Cooking history', () => {
     await expect(dialog.getByRole('alert')).toContainText('Nothing was changed. If the shelf looks different now, recount the lot in Inventory instead.');
     await expect(dialog.getByRole('button', { name: 'Yes, put it back' })).toHaveCount(0);
     await expect.poll(() => api.ofPath('/api/inventory/consumptions', 'GET').length).toBe(2);
+    await expect(dialog.getByRole('button', { name: 'Close' }).last()).toBeFocused();
+    await expect(row(page, /^Sunday pancakes/).first()).toContainText('Can’t be undone: stock has changed since.');
     await dialog.getByRole('button', { name: 'Close' }).first().click();
     await expect(dialog).toHaveCount(0);
     await expect(list(page).getByRole('button')).toHaveCount(0);
+  });
+
+  test('says why an entry can no longer be undone, and says “about” for amounts from estimated lots', async ({ page }) => {
+    const inventory = stock();
+    inventory.lots = [{ id: 'lot-flour-b', itemId: 'item-flour', locationId: null, qty: 400 * G, precision: 'estimated', estBp: 2500, enteredText: '500 g', dateKind: null, date: null, note: '', version: 2, createdAt: 1, updatedAt: 1 }];
+    await mock(page, { entries: history(), older: olderHistory(), inventory });
+    await page.goto('/#inventory');
+    await section(page).getByRole('button', { name: 'Show cooking history' }).click();
+    await expect(row(page, /^Sunday pancakes/).first()).toContainText('Taken: Plain flour about 300 g, Eggs 2 eggs');
+    await expect(row(page, /^Sunday pancakes/).first()).not.toContainText('Can’t be undone');
+    await section(page).getByRole('button', { name: 'Load more' }).click();
+    await expect(row(page, 'Weeknight omelette')).toContainText('Can’t be undone: stock has changed since.');
+    // Undone entries and undo entries need no such note.
+    await expect(row(page, /^Undo of Sunday pancakes/)).not.toContainText('Can’t be undone');
+    await expect(list(page).getByRole('listitem').nth(2)).not.toContainText('Can’t be undone');
   });
 
   test('keeps nothing from the history in browser storage', async ({ page }) => {

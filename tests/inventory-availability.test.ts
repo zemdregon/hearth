@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { harness } from './fixtures/api-harness';
 import { checkRecipe, exactRational, ingredientKey } from '../src/shared/inventory';
-import type { AvailabilityResult, InvAlias, InvCalibration, InvItem, InvLot, InvLotResult, InvSettings, InventoryState } from '../src/shared/inventory';
+import type { AvailabilityResult, InvAlias, InvCalibration, InvItem, InvLot, InvLotResult, InvSettings, InventoryExport, InventoryState } from '../src/shared/inventory';
 import type { FamilyRecord, Recipe } from '../src/shared/types';
 
 describe('exactRational', () => {
@@ -103,7 +103,11 @@ describe('availability against a recipe', () => {
       return { verdict: result.verdict, reasons: result.items.flatMap(row => row.reasons) };
     };
     expect(await reasons([{ name: 'milk', quantity: 1, unit: 'cup' }])).toEqual({ verdict: 'unknown', reasons: ['MEASURE_PROFILE_AMBIGUOUS'] }); // no household convention yet
-    expect((await reasons([{ name: 'flour', quantity: 1, unit: 'oz' }])).reasons).toEqual(['AMBIGUOUS_OUNCE']);
+    // A bare “oz” on an item the cook tracks by weight is a weight ounce (and says so); on a
+    // volume-tracked item it stays ambiguous and unknown.
+    expect(await reasons([{ name: 'flour', quantity: 2, unit: 'oz' }])).toEqual({ verdict: 'sufficient', reasons: ['OZ_ASSUMED_WEIGHT'] });
+    expect(await reasons([{ name: 'flour', quantity: 100, unit: 'ounces' }])).toEqual({ verdict: 'insufficient', reasons: ['OZ_ASSUMED_WEIGHT'] }); // 2.8 kg of 1 kg
+    expect(await reasons([{ name: 'milk', quantity: 1, unit: 'oz' }])).toEqual({ verdict: 'unknown', reasons: ['AMBIGUOUS_OUNCE'] });
     expect((await reasons([{ name: 'flour', quantity: 1, unit: 'cup' }])).reasons).toContain('MEASURE_PROFILE_AMBIGUOUS');
     await setProfile('us-label');
     expect(await reasons([{ name: 'flour', quantity: 1, unit: 'cup' }])).toEqual({ verdict: 'unknown', reasons: ['DIM_MISMATCH_NO_CONVERSION'] });
@@ -203,10 +207,12 @@ describe('conversions between measurement kinds', () => {
     expect(duplicate.status).toBe(409);
     expect((await post('/calibrations', { itemId: eggs.id, fromAmount: '1', fromUnit: 'egg', toAmount: '50', toUnit: 'g' })).status).toBe(201);
   });
-  it('blocks archiving an item that still has mappings or conversions', async () => {
+  it('blocks archiving an item that still has mappings or conversions, naming the real reason', async () => {
     const flour = await item('Flour', 'mass');
     const alias = await map('flour', flour.id);
-    expect((await post(`/items/${flour.id}/archive`, { version: 1 })).status).toBe(409);
+    const blocked = await post(`/items/${flour.id}/archive`, { version: 1 });
+    expect(blocked.status).toBe(409);
+    expect(((await blocked.json()) as { error: string }).error).toMatch(/recipe matches or conversions/);
     await post(`/aliases/${alias.id}/archive`, { version: 1 });
     expect((await post(`/items/${flour.id}/archive`, { version: 1 })).status).toBe(200);
     expect((await post('/aliases', { name: 'again', itemId: flour.id })).status).toBe(404);
@@ -250,8 +256,9 @@ describe('mappings, settings and access', () => {
   });
   it('is included in the export and the inventory read', async () => {
     const flour = await item('Flour', 'mass'); await map('flour', flour.id);
-    const exported = await (await h.request('/api/export')).json() as { inventory: InventoryState };
+    const exported = await (await h.request('/api/export')).json() as { inventory: InventoryExport };
     expect(exported.inventory.aliases).toHaveLength(1);
+    expect(exported.inventory.cookings).toEqual([]);
     expect(exported.inventory.settings).toEqual({ measureProfile: null, version: 1 });
   });
 });
