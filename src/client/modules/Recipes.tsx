@@ -165,27 +165,43 @@ export function Recipes() {
   </div>;
 }
 
+type Panel = 'ingredients' | 'steps';
+
 function RecipeDetail({ record, busy, onBack, onFavorite, onEdit, onDelete }: { record: FamilyRecord<'recipe'>; busy: boolean; onBack: () => void; onFavorite: () => void; onEdit: () => void; onDelete: () => void }) {
   const recipe = record.data;
   const [portions, setPortions] = useState(String(recipe.servings));
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [printError, setPrintError] = useState('');
-  const [panel, setPanel] = useState<'ingredients' | 'steps'>('ingredients');
+  const [panel, setPanel] = useState<Panel>('ingredients');
   const content = useRef<HTMLDivElement>(null);
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
-  const returnToContent = useRef(false);
+  const positions = useRef<Partial<Record<Panel, number>>>({});
+  const pendingSwitch = useRef<{ offset?: number; pastStart: boolean } | null>(null);
   useLayoutEffect(() => {
-    if (returnToContent.current && content.current) {
-      window.scrollTo({ top: Math.max(0, window.scrollY + content.current.getBoundingClientRect().top), behavior: 'instant' });
-      returnToContent.current = false;
-    }
+    const pending = pendingSwitch.current;
+    pendingSwitch.current = null;
+    const start = content.current;
+    const target = start?.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])');
+    if (!pending || !start || !target) return;
+    const startTop = window.scrollY + start.getBoundingClientRect().top;
+    let top = startTop;
+    if (pending.offset !== undefined) {
+      // Offsets are relative to the panel's top, so they survive the other panel having a different height; clamp if this one got shorter.
+      const bar = start.querySelector('[role="tablist"]');
+      const covered = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().height : 0;
+      const panelTop = window.scrollY + target.getBoundingClientRect().top;
+      top = panelTop + Math.min(pending.offset, Math.max(startTop - panelTop, target.offsetHeight - (window.innerHeight - covered)));
+    } else if (!pending.pastStart) return;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
   }, [panel]);
-  function selectPanel(next: 'ingredients' | 'steps') {
+  function selectPanel(next: Panel) {
     if (next === panel) return;
-    returnToContent.current = (content.current?.getBoundingClientRect().top ?? 0) < 0;
+    const leaving = content.current?.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])');
+    if (leaving) positions.current[panel] = -leaving.getBoundingClientRect().top;
+    pendingSwitch.current = { offset: positions.current[next], pastStart: (content.current?.getBoundingClientRect().top ?? 0) < 0 };
     setPanel(next);
   }
-  useEffect(() => { setPanel('ingredients'); }, [record.id]);
+  useEffect(() => { positions.current = {}; setPanel('ingredients'); }, [record.id]);
   useEffect(() => { setPortions(String(recipe.servings)); setChecked(new Set()); }, [record.id, recipe.servings]);
   const parsed = Number(portions);
   const validPortions = Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000;
