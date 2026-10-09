@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, BookOpen, Camera, Check, Clock3, ExternalLink, FileText, Heart, Leaf, Link2, Minus, Plus, Printer, Search, Trash2, Users, X } from 'lucide-react';
@@ -169,6 +169,22 @@ function RecipeDetail({ record, busy, onBack, onFavorite, onEdit, onDelete }: { 
   const [portions, setPortions] = useState(String(recipe.servings));
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [printError, setPrintError] = useState('');
+  const [panel, setPanel] = useState<'ingredients' | 'steps'>('ingredients');
+  const content = useRef<HTMLDivElement>(null);
+  const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  const returnToContent = useRef(false);
+  useLayoutEffect(() => {
+    if (returnToContent.current && content.current) {
+      window.scrollTo({ top: Math.max(0, window.scrollY + content.current.getBoundingClientRect().top), behavior: 'instant' });
+      returnToContent.current = false;
+    }
+  }, [panel]);
+  function selectPanel(next: 'ingredients' | 'steps') {
+    if (next === panel) return;
+    returnToContent.current = (content.current?.getBoundingClientRect().top ?? 0) < 0;
+    setPanel(next);
+  }
+  useEffect(() => { setPanel('ingredients'); }, [record.id]);
   useEffect(() => { setPortions(String(recipe.servings)); setChecked(new Set()); }, [record.id, recipe.servings]);
   const parsed = Number(portions);
   const validPortions = Number.isInteger(parsed) && parsed >= 1 && parsed <= 1000;
@@ -185,16 +201,24 @@ function RecipeDetail({ record, busy, onBack, onFavorite, onEdit, onDelete }: { 
     <div className="recipe-detail-toolbar"><Button variant="ghost" onClick={onBack}><ArrowLeft size={17} />All recipes</Button><div><Button variant="secondary" onClick={printRecipe} disabled={!validPortions}><Printer size={17} />Print recipe</Button><Button variant="secondary" onClick={onFavorite} disabled={busy} aria-pressed={recipe.favorite}><Heart size={17} fill={recipe.favorite ? 'currentColor' : 'none'} />{recipe.favorite ? 'Saved favorite' : 'Favorite'}</Button><Button onClick={onEdit}>Edit recipe</Button></div></div>
     {printError && <p className="recipe-alert" role="alert">{printError}</p>}
     <div className="recipe-detail-heading"><div className="recipe-detail-tags">{recipe.tags.map(item => <Badge key={item}>{item}</Badge>)}</div><h1>{recipe.title}</h1>{recipe.description && <p>{recipe.description}</p>}<div className="recipe-detail-meta"><span><Clock3 size={16} />Prep {recipe.prepMinutes ? durationLabel(recipe.prepMinutes) : 'not set'}</span><span><Clock3 size={16} />Cook {recipe.cookMinutes ? durationLabel(recipe.cookMinutes) : 'not set'}</span><span><Users size={16} />Originally serves {recipe.servings}</span></div></div>
-    <div className="recipe-detail-columns">
-      <section className="recipe-ingredients card"><div className="recipe-section-heading"><h2>Ingredients</h2><Leaf size={21} aria-hidden="true" /></div><div className="recipe-servings"><label htmlFor="recipe-portions">Servings</label><div><button type="button" className="recipe-icon-button" disabled={servings <= 1} onClick={() => setPortions(String(Math.max(1, servings - 1)))} aria-label="Decrease servings"><Minus size={16} /></button><input id="recipe-portions" type="number" min="1" max="1000" step="1" value={portions} aria-invalid={!validPortions} aria-describedby={`recipe-scaling-note${!validPortions ? ' recipe-portions-error' : ''}`} onChange={event => setPortions(event.target.value)} /><button type="button" className="recipe-icon-button" disabled={servings >= 1000} onClick={() => setPortions(String(Math.min(1000, servings + 1)))} aria-label="Increase servings"><Plus size={16} /></button></div></div>
+    <div className="recipe-detail-content" ref={content}>
+      <div className="recipe-detail-tabs" role="tablist" aria-label="Recipe sections">
+        {(['ingredients', 'steps'] as const).map((name, index) => <button key={name} ref={element => { tabs.current[index] = element; }} type="button" role="tab" id={`recipe-tab-${name}`} aria-controls={`recipe-panel-${name}`} aria-selected={panel === name} tabIndex={panel === name ? 0 : -1} onClick={() => selectPanel(name)} onKeyDown={event => {
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : event.key === 'ArrowRight' || event.key === 'ArrowLeft' ? 1 - index : null;
+          if (next === null) return;
+          event.preventDefault(); selectPanel(next === 0 ? 'ingredients' : 'steps'); tabs.current[next]?.focus({ preventScroll: true });
+        }}>{name === 'ingredients' ? 'Ingredients' : 'Steps'}</button>)}
+      </div>
+      <div className="recipe-detail-columns">
+      <section className="recipe-ingredients card recipe-tab-panel" role="tabpanel" id="recipe-panel-ingredients" aria-labelledby="recipe-tab-ingredients" tabIndex={0} hidden={panel !== 'ingredients'}><div className="recipe-section-heading"><h2>Ingredients</h2><Leaf size={21} aria-hidden="true" /></div><div className="recipe-servings"><label htmlFor="recipe-portions">Servings</label><div><button type="button" className="recipe-icon-button" disabled={servings <= 1} onClick={() => setPortions(String(Math.max(1, servings - 1)))} aria-label="Decrease servings"><Minus size={16} /></button><input id="recipe-portions" type="number" min="1" max="1000" step="1" value={portions} aria-invalid={!validPortions} aria-describedby={`recipe-scaling-note${!validPortions ? ' recipe-portions-error' : ''}`} onChange={event => setPortions(event.target.value)} /><button type="button" className="recipe-icon-button" disabled={servings >= 1000} onClick={() => setPortions(String(Math.min(1000, servings + 1)))} aria-label="Increase servings"><Plus size={16} /></button></div></div>
         {(servings !== recipe.servings || !validPortions) && <button type="button" className="recipe-reset-servings" onClick={() => setPortions(String(recipe.servings))}>Reset to {recipe.servings} servings</button>}
         {!validPortions && <p id="recipe-portions-error" role="alert" className="recipe-error">Choose a whole number from 1 to 1,000. Original amounts shown.</p>}
         <p id="recipe-scaling-note" className="recipe-scaling-note">Only ingredient amounts adjust. Unmeasured ingredients, quantities in the method, cooking times, and temperatures stay as written.</p>
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{validPortions ? `Ingredient amounts shown for ${servings} ${servings === 1 ? 'serving' : 'servings'}.` : ''}</p>
         <ul className="recipe-ingredient-list">{recipe.ingredients.map((ingredient, index) => <li key={index}><label className={checked.has(index) ? 'checked' : ''}><input type="checkbox" checked={checked.has(index)} onChange={() => setChecked(previous => { const next = new Set(previous); if (next.has(index)) next.delete(index); else next.add(index); return next; })} /><span><strong>{[ingredientAmount(ingredient, ratio), ingredient.unit].filter(Boolean).join(' ')}</strong>{ingredient.quantity !== null || ingredient.unit ? ' ' : ''}{ingredient.name}{ingredient.note && <small>{ingredient.note}</small>}</span></label></li>)}</ul>
       </section>
-      <section className="recipe-method"><h2>Let’s make it</h2><ol className="recipe-step-list">{recipe.steps.map((step, index) => <li key={index}><span className="recipe-step-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><p>{step}</p></li>)}</ol>{source && <a className="recipe-source" href={source} target="_blank" rel="noopener noreferrer">Visit the original recipe<ExternalLink size={14} /></a>}<p className="recipe-cook-note">Make it yours. Taste as you go, and check ingredient labels for your family’s dietary needs.</p></section>
-    </div><div className="recipe-delete-row"><Button variant="ghost" onClick={onDelete}><Trash2 size={15} />Delete recipe</Button></div>
+      <section className="recipe-method recipe-tab-panel" role="tabpanel" id="recipe-panel-steps" aria-labelledby="recipe-tab-steps" tabIndex={0} hidden={panel !== 'steps'}><h2>Let’s make it</h2><ol className="recipe-step-list">{recipe.steps.map((step, index) => <li key={index}><span className="recipe-step-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><p>{step}</p></li>)}</ol>{source && <a className="recipe-source" href={source} target="_blank" rel="noopener noreferrer">Visit the original recipe<ExternalLink size={14} /></a>}<p className="recipe-cook-note">Make it yours. Taste as you go, and check ingredient labels for your family’s dietary needs.</p></section>
+    </div></div><div className="recipe-delete-row"><Button variant="ghost" onClick={onDelete}><Trash2 size={15} />Delete recipe</Button></div>
   </div>;
 }
 
