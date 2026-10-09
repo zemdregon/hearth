@@ -1,0 +1,111 @@
+/* Pantry check on a recipe. Uses shared tokens so the evening theme applies; the --night-* fallbacks keep light mode readable. */
+.pantry-check { --pc-ink: var(--green-deep, #263f34); --pc-soft: var(--night-muted, #4f5b4a); --pc-accent: var(--green, #315343); display: grid; gap: 14px; min-width: 0; margin-top: 22px; padding: 18px 16px; border: 1px solid var(--line, #e0e5d6); border-radius: 12px; background: var(--paper, #fff); color: var(--pc-ink); }
+.pantry-check .pantry-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--pc-accent); }
+.recipe-detail .pantry-check h2 { margin: 0; font: 400 1.5rem Georgia, serif; color: var(--pc-ink); }
+.pantry-check h3 { margin: 0; font-family: var(--serif, Georgia, serif); font-weight: 600; font-size: 1.1rem; color: var(--pc-ink); overflow-wrap: anywhere; }
+.pantry-check h3:focus-visible { outline: 2px solid var(--night-focus, var(--pc-accent)); outline-offset: 3px; border-radius: 4px; }
+.pantry-check .pantry-sub { margin-top: 6px; }
+.pantry-intro, .pantry-soft { margin: 0; font-size: 14px; line-height: 1.55; color: var(--pc-soft); overflow-wrap: anywhere; }
+.pantry-check .button { min-height: 44px; margin-top: 0; white-space: normal; text-align: center; }
+.pantry-check .button.small { min-height: 44px; padding: 8px 13px; }
+.pantry-actions, .pantry-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.pantry-link { text-decoration: none; }
+.pantry-lines { border: 1px solid var(--line, #e0e5d6); border-radius: 10px; padding: 0 12px; }
+.pantry-lines > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--pc-ink); }
+.pantry-lines[open] > summary { border-bottom: 1px solid var(--line, #e0e5d6); margin-bottom: 8px; }
+.pantry-lines ul { list-style: none; margin: 8px 0 12px; padding: 0; }
+.pantry-lines li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 6px 0; border-top: 1px solid var(--line, #e0e5d6); }
+.pantry-lines li:first-child { border-top: 0; }
+.pantry-line-text { flex: 1 1 160px; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.pantry-toggle { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 44px; font-size: 14px; cursor: pointer; color: var(--pc-ink); }
+.pantry-toggle input { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--pc-accent); }
+.pantry-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px; border: 1px solid #e7c7b4; border-radius: 10px; background: #fbede3; color: #7a3a29; font-size: 14px; }
+.pantry-error > span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.pantry-result { display: grid; gap: 12px; min-width: 0; }
+.pantry-banner { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid; border-radius: 12px; min-width: 0; }
+.pantry-banner > svg { flex: 0 0 auto; margin-top: 2px; }
+.pantry-banner > div { min-width: 0; }
+.pantry-banner h3 { margin: 0 0 4px; font-size: 1.2rem; }
+.pantry-banner p { margin: 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.pantry-banner.sufficient { background: #ebf1e7; border-color: #bfd2b6; color: #1f3a22; }
+.pantry-banner.sufficient > svg { color: #2f6b2a; }
+.pantry-banner.insufficient { background: #f9eae3; border-color: #e0b9a6; color: #5a2a1c; }
+.pantry-banner.insufficient > svg { color: #9a3f2a; }
+.pantry-banner.unknown { background: #fcf1d9; border-color: #e0cb94; color: #4a3910; }
+.pantry-banner.unknown > svg { color: #86610f; }
+.pantry-banner.stale { background: #eef0ea; border-color: #c9cfc0; color: var(--pc-ink); }
+.pantry-banner h3, .pantry-banner p { color: inherit; }
+.pantry-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pantry-item { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line, #e0e5d6); border-radius: 10px; min-width: 0; }
+.pantry-result.is-stale .pantry-item { border-style: dashed; }
+.pantry-item-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.pantry-item-head strong { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
+.pantry-item .pill, .pantry-toggle .pill { white-space: normal; }
+.pantry-amounts { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 0; }
+.pantry-amounts > div { min-width: 0; }
+.pantry-amounts dt { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--pc-soft); }
+.pantry-amounts dd { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.pantry-short { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; font-weight: 650; color: #8a3a27; }
+.pantry-short svg { flex: 0 0 auto; }
+.pantry-reasons { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; line-height: 1.5; color: var(--pc-ink); }
+.pantry-reasons li { overflow-wrap: anywhere; }
+.pantry-reasons li.note { color: var(--pc-soft); }
+.pantry-task-list { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 15px; overflow-wrap: anywhere; }
+.pantry-dialog textarea.input { min-height: 44px; }
+
+/* Cooking: review what was used, then confirm. The dialog lives outside .pantry-check, so it carries its own tokens. */
+.cook-dialog { --pc-ink: var(--green-deep, #263f34); --pc-soft: var(--night-muted, #4f5b4a); --pc-accent: var(--green, #315343); }
+.cook-dialog .button { min-height: 44px; margin-top: 0; white-space: normal; text-align: center; }
+.cook-dialog .button.small { min-height: 44px; padding: 8px 13px; }
+.cook-dialog h3 { margin: 0; font-family: var(--serif, Georgia, serif); font-weight: 600; font-size: 1.1rem; color: var(--pc-ink); overflow-wrap: anywhere; }
+.cook-dialog h3:focus-visible { outline: 2px solid var(--night-focus, var(--pc-accent)); outline-offset: 3px; border-radius: 4px; }
+.cook-dialog .pantry-soft, .cook-dialog .pantry-amounts { overflow-wrap: anywhere; }
+.cook-lines, .cook-lots, .cook-not-list, .cook-summary { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; min-width: 0; }
+.cook-line { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line, #e0e5d6); border-radius: 10px; min-width: 0; }
+.cook-line.is-off { border-style: dashed; }
+.cook-line-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.cook-include { align-items: center; flex: 1 1 180px; min-width: 0; }
+.cook-include > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.cook-include strong { font-size: 15px; }
+.cook-include small { font-size: 13px; color: var(--pc-soft); }
+.cook-dialog .cook-sub { margin: 4px 0 0; font-family: var(--serif, Georgia, serif); font-size: 1rem; font-weight: 600; color: var(--pc-ink); }
+.cook-lots { gap: 8px; }
+.cook-lot { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line, #e0e5d6); border-radius: 8px; min-width: 0; background: var(--inv-raised, transparent); }
+.cook-lot-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.cook-lot-top strong { overflow-wrap: anywhere; }
+.cook-lot .pill { white-space: normal; }
+.cook-lot-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.cook-take { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cook-take .input { flex: 1 1 auto; min-width: 0; }
+.cook-unit { flex: 0 0 auto; font-size: 14px; color: var(--pc-soft); }
+.cook-note { margin: 0; padding: 10px 12px; border: 1px solid #e0cb94; border-radius: 8px; background: #fcf1d9; color: #4a3910; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.cook-not-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; font-size: 14px; }
+.cook-not-list li > span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.cook-not-list .pill { white-space: normal; }
+.cook-summary-box { padding: 10px 12px; border-radius: 8px; background: var(--inv-raised, #f4f5ee); }
+.cook-summary-box:empty { display: none; }
+.cook-summary-text { margin: 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.cook-done { display: grid; gap: 12px; min-width: 0; }
+.cook-summary { list-style: disc; padding-left: 20px; gap: 4px; font-size: 15px; overflow-wrap: anywhere; }
+
+@media (min-width: 640px) { .pantry-check { padding: 20px 22px; } }
+@media (max-width: 380px) { .pantry-check { padding: 14px 12px; } .pantry-banner { padding: 12px; } }
+
+@media screen {
+  html[data-theme="dark"] .pantry-check { --pc-ink: var(--night-text); --pc-soft: var(--night-muted); --pc-accent: var(--green); background: var(--paper); border-color: var(--line); }
+  html[data-theme="dark"] .pantry-error { background: var(--night-rose); color: var(--night-rose-text); border-color: #865951; }
+  html[data-theme="dark"] .pantry-banner.sufficient { background: var(--night-green); border-color: #4c6a4d; color: var(--night-text); }
+  html[data-theme="dark"] .pantry-banner.sufficient > svg { color: var(--green); }
+  html[data-theme="dark"] .pantry-banner.insufficient { background: var(--night-rose); border-color: #865951; color: var(--night-text); }
+  html[data-theme="dark"] .pantry-banner.insufficient > svg, html[data-theme="dark"] .pantry-short { color: var(--night-rose-text); }
+  html[data-theme="dark"] .pantry-banner.unknown { background: var(--night-amber); border-color: #7a6a3c; color: var(--night-text); }
+  html[data-theme="dark"] .pantry-banner.unknown > svg { color: var(--night-gold); }
+  html[data-theme="dark"] .pantry-banner.stale { background: var(--night-raised); border-color: var(--night-border); }
+  html[data-theme="dark"] .pantry-lines > summary:focus-visible { outline-color: var(--night-focus); }
+  html[data-theme="dark"] .cook-dialog { --pc-ink: var(--night-text); --pc-soft: var(--night-muted); --pc-accent: var(--green); }
+  html[data-theme="dark"] .cook-note { background: var(--night-amber); border-color: #7a6a3c; color: var(--night-text); }
+  html[data-theme="dark"] .cook-lot, html[data-theme="dark"] .cook-summary-box { background: var(--night-raised); border-color: var(--night-border); }
+  html[data-theme="dark"] .pantry-dialog select.input option { background: var(--night-input); color: var(--night-text); }
+  html[data-theme="dark"] .pantry-dialog .inventory-choice label { color: var(--night-text); }
+}
+@media print { .pantry-check { display: none !important; } }

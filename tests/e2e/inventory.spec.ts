@@ -323,6 +323,7 @@ function populated(): InventoryState {
       lot('lot-milk', 'item-milk', 'loc-fridge', 1_000_000_000, { dateKind: 'use_by', date: PAST }),
       lot('lot-eggs', 'item-eggs', null, 6),
     ],
+    aliases: [], calibrations: [], settings: { measureProfile: null, version: 1 },
   };
 }
 function family(): Bootstrap {
@@ -391,7 +392,7 @@ test.describe('Inventory page with fixed data', () => {
   });
 
   test('history loads in pages and ends with a focused message', async ({ page }) => {
-    const entries: InvLedgerEntry[] = Array.from({ length: 45 }, (_, index) => ({ seq: 45 - index, txnId: `txn-${45 - index}-padding`, kind: 'add', memberId: 'sam', lotId: 'lot-eggs', itemId: 'item-eggs', delta: 1, qtyAfter: 6, reason: `Entry number ${45 - index}`, createdAt: 1_700_000_000 + index }));
+    const entries: InvLedgerEntry[] = Array.from({ length: 45 }, (_, index) => ({ seq: 45 - index, txnId: `txn-${45 - index}-padding`, kind: 'add', memberId: 'sam', lotId: 'lot-eggs', itemId: 'item-eggs', itemName: 'Eggs', dim: 'count:egg', delta: 1, qtyAfter: 6, reason: `Entry number ${45 - index}`, createdAt: 1_700_000_000 + index }));
     const requests: URL[] = [];
     await openMocked(page);
     await page.route('**/api/inventory/ledger**', route => {

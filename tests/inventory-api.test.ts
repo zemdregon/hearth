@@ -100,10 +100,10 @@ describe('stock entry converts to exact integer base units', () => {
     }
     expect(count('inv_lots') + count('inv_txns') + count('inv_ledger')).toBe(0);
   });
-  it('rounds only to the nearest base unit, for exact and estimated stock alike', async () => {
+  it('rounds only up to the next base unit, for exact and estimated stock alike', async () => {
     const spice = await item('Cumin', 'volume');
     expect((await stock(spice.id, { amount: '1', unit: 'tsp', profile: 'us-customary' })).qty).toBe(4_928_922); // 4,928,921.59375 nL
-    expect((await stock(spice.id, { amount: '1', unit: 'cup', profile: 'us-customary' })).qty).toBe(236_588_237); // 236,588,236.5 nL, halves up
+    expect((await stock(spice.id, { amount: '1', unit: 'cup', profile: 'us-customary' })).qty).toBe(236_588_237); // 236,588,236.5 nL, rounded up
     const lot = await stock(spice.id, { amount: '1', unit: 'tsp', profile: 'us-customary', precision: 'estimated', estBp: 2500 });
     expect(lot).toMatchObject({ qty: 4_928_922, precision: 'estimated', estBp: 2500 });
   });
@@ -170,6 +170,7 @@ describe('adjustments and the ledger', () => {
     lot = ((await (await adjust(lot, { mode: 'set', amount: '1.2', unit: 'kg', precision: 'estimated', estBp: 1000 })).json()) as InvLotResult).lots[0];
     expect(lot).toMatchObject({ qty: 1_200_000_000_000, precision: 'estimated', estBp: 1000, enteredText: '1.2 kg' });
     const ledger = await (await h.request('/api/inventory/ledger', { user: 'sam' })).json() as { entries: { kind: string; delta: number; qtyAfter: number; reason: string; memberId: string }[]; next: null };
+    expect(ledger.entries[0]).toMatchObject({ itemName: 'Flour', dim: 'mass' }); // names and units travel with history, even for archived items
     expect(ledger.entries.map(entry => [entry.kind, entry.delta, entry.qtyAfter, entry.reason, entry.memberId])).toEqual([
       ['count', -550_000_000_000, 1_200_000_000_000, 'Recounted', 'alex'],
       ['adjust', 250_000_000_000, 1_750_000_000_000, 'Added stock', 'alex'],
@@ -363,15 +364,13 @@ describe('review regressions', () => {
     const second = await stock((await item('Sugar')).id.valueOf()).catch(() => null);
     expect(second).toBeNull();
   });
-  it('rejects amounts that round to nothing, and control characters in amounts', async () => {
+  it('rounds a positive amount up to at least one base unit, and rejects control characters in amounts', async () => {
     const flour = await item();
-    const tiny = await addLot(flour.id, { amount: '0.000000000001', unit: 'g' });
-    expect(tiny.status).toBe(400);
-    expect(await error(tiny)).toMatch(/too small/);
+    const tiny = await stock(flour.id, { amount: '0.000000000001', unit: 'g' });
+    expect(tiny.qty).toBe(1); // 0.001 ng rounds UP, so a positive entry is never silently zero
     expect((await addLot(flour.id, { amount: '1\n/\n2', unit: 'kg' })).status).toBe(400);
     const lot = await stock(flour.id, { amount: '1  1/2', unit: 'kg' });
     expect(lot.enteredText).toBe('1 1/2 kg');
-    expect((await adjust(lot, { mode: 'add', amount: '0.000000000001', unit: 'g' })).status).toBe(400);
     expect((await adjust(lot, { mode: 'set', amount: '0', unit: 'kg' })).status).toBe(200);
   });
   it('rejects names that expand past the key limit or hide look-alike characters', async () => {

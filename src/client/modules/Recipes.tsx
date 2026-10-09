@@ -8,6 +8,7 @@ import type { FamilyRecord, Ingredient, Recipe, RecipeImportRequest, RecipeImpor
 import { durationLabel, ingredientAmount, parseQuantity } from '../../shared/recipes';
 import { prepareRecipePhoto, recipePhotoBase64 } from '../recipe-image';
 import type { PreparedRecipePhoto } from '../recipe-image';
+import { PantryCheck } from './PantryCheck';
 import './recipes.css';
 
 const blankRecipe = (): Recipe => ({ title: '', description: '', servings: 4, prepMinutes: 0, cookMinutes: 0, ingredients: [{ name: '', quantity: null, unit: '' }], steps: [''], tags: [], favorite: false });
@@ -216,6 +217,7 @@ function RecipeDetail({ record, busy, onBack, onFavorite, onEdit, onDelete }: { 
         <p id="recipe-scaling-note" className="recipe-scaling-note">Only ingredient amounts adjust. Unmeasured ingredients, quantities in the method, cooking times, and temperatures stay as written.</p>
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{validPortions ? `Ingredient amounts shown for ${servings} ${servings === 1 ? 'serving' : 'servings'}.` : ''}</p>
         <ul className="recipe-ingredient-list">{recipe.ingredients.map((ingredient, index) => <li key={index}><label className={checked.has(index) ? 'checked' : ''}><input type="checkbox" checked={checked.has(index)} onChange={() => setChecked(previous => { const next = new Set(previous); if (next.has(index)) next.delete(index); else next.add(index); return next; })} /><span><strong>{[ingredientAmount(ingredient, ratio), ingredient.unit].filter(Boolean).join(' ')}</strong>{ingredient.quantity !== null || ingredient.unit ? ' ' : ''}{ingredient.name}{ingredient.note && <small>{ingredient.note}</small>}</span></label></li>)}</ul>
+        <PantryCheck key={`${record.id}:${record.version}`} record={record} servings={servings} validServings={validPortions} />
       </section>
       <section className="recipe-method recipe-tab-panel" role="tabpanel" id="recipe-panel-steps" aria-labelledby="recipe-tab-steps" tabIndex={0} hidden={panel !== 'steps'}><h2>Let’s make it</h2><ol className="recipe-step-list">{recipe.steps.map((step, index) => <li key={index}><span className="recipe-step-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><p>{step}</p></li>)}</ol>{source && <a className="recipe-source" href={source} target="_blank" rel="noopener noreferrer">Visit the original recipe<ExternalLink size={14} /></a>}<p className="recipe-cook-note">Make it yours. Taste as you go, and check ingredient labels for your family’s dietary needs.</p></section>
     </div></div><div className="recipe-delete-row"><Button variant="ghost" onClick={onDelete}><Trash2 size={15} />Delete recipe</Button></div>

@@ -190,6 +190,26 @@ describe('explicit text and image AI drafts', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('reads a prose answer from the vision model through the JSON-mode text model, once', async () => {
+    const run = vi.fn()
+      .mockResolvedValueOnce({ response: '**Recipe Title:** Lemon Pancakes\n**Ingredients:**\n* 1 cup flour\n**Instructions:** 1. Whisk.' })
+      .mockResolvedValueOnce({ response: JSON.stringify(extracted) });
+    const result = await importRecipe({ mode: 'image', value: png, mimeType: 'image/png' }, { AI: { run } as unknown as Ai });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[0][0]).toBe('@cf/meta/llama-3.2-11b-vision-instruct');
+    const [model, args] = run.mock.calls[1];
+    expect(model).toBe('@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+    expect(args.response_format).toEqual({ type: 'json_object' });
+    expect(JSON.parse(args.messages[1].content).untrustedRecipeSource).toContain('Lemon Pancakes');
+    expect(result.warnings.join(' ')).toContain('misread fractions');
+  });
+
+  it('does not loop when neither model returns a recipe', async () => {
+    const run = vi.fn().mockResolvedValue({ response: 'I cannot read this.' });
+    await expect(importRecipe({ mode: 'image', value: png, mimeType: 'image/png' }, { AI: { run } as unknown as Ai })).rejects.toMatchObject({ status: 422 });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
   it('uses the vision model and documented base64 data-URL image input', async () => {
     const { binding, run } = aiBinding();
     const result = await importRecipe({ mode: 'image', value: png, mimeType: 'image/png' }, { AI: binding });

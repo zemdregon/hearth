@@ -95,6 +95,10 @@ describe('passkey production deployment configuration', () => {
       writeFileSync(join(dir,'migrations/0007_inventory_foundation.sql'),'');
       expect(run().status).toBe(1);
       writeFileSync(join(dir,'migrations/0008_modules_inventory.sql'),'');
+      expect(run().status).toBe(1);
+      writeFileSync(join(dir,'migrations/0009_inventory_mapping.sql'),'');
+      expect(run().status).toBe(1);
+      writeFileSync(join(dir,'migrations/0010_inventory_consumption.sql'),'');
       const complete=run(); expect(complete.status).toBe(0); expect(complete.stdout).toContain('checks passed');
     } finally { rmSync(dir,{recursive:true,force:true}); }
   });

@@ -333,7 +333,13 @@ async function extractWithAi(ai: Ai | undefined, value: string, image: boolean):
   let parsed: unknown = response;
   if (typeof response === 'string') {
     try { parsed = JSON.parse(response.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1')); }
-    catch { throw new RecipeImportError('AI returned an incomplete recipe. Try clearer text or a sharper image.', 422); }
+    catch {
+      // The vision model answers in prose (its call has no JSON mode, observed against the live
+      // account). Treat that reading of the user's own image as recipe text for the JSON-mode text
+      // model, once; the text path validates it exactly like pasted text.
+      if (image && response.trim()) return extractWithAi(ai, response.trim().slice(0, MAX_TEXT_LENGTH), false);
+      throw new RecipeImportError('AI returned an incomplete recipe. Try clearer text or a sharper image.', 422);
+    }
   }
   const result = extractedSchema.safeParse(parsed);
   if (!result.success) throw new RecipeImportError('A complete recipe could not be extracted. Include a title, ingredients and instructions, or add it manually.', 422);

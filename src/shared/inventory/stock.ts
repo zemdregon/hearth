@@ -6,9 +6,10 @@ import type { MeasurementProfile } from './units';
  * Stored stock is an integer in ng (mass), nL (volume) or whole counts of one named semantic
  * unit. Those are 10^6 and 10^3 times the engine's mg / µL bases, so every pound, ounce, gram and
  * millilitre is exact. Some US-customary volumes (a cup is 236,588,236.5 nL, a teaspoon is not a
- * finite decimal) are not whole nanolitres: those round to the nearest base unit. A stored lot is
- * therefore the nearest integer to what was entered, and consumers must treat its supply as
- * [qty − ½, qty + ½] base units (before any estimate range) rather than claim sub-unit exactness.
+ * finite decimal) are not whole nanolitres: those round UP to the next base unit. A stored lot is
+ * therefore the entered amount plus less than one base unit (under 1 nL / 1 ng, far below any
+ * household measurement), which keeps "I have exactly what the recipe needs" sufficient instead
+ * of a spurious sub-nanolitre shortage.
  */
 export const stockDimensions = ['mass', 'volume', 'count:piece', 'count:egg', 'count:clove', 'count:head', 'count:bunch', 'count:slice', 'count:sprig'] as const;
 export type StockDimension = typeof stockDimensions[number];
@@ -27,7 +28,7 @@ const REASONS: Readonly<Record<string, string>> = {
 
 /**
  * Converts one exact, positive entry into integer base units for an item's dimension.
- * Rounds only to the nearest base unit (see above); ranges, zero, mismatched dimensions and
+ * Rounds only up to the next base unit (see above); ranges, zero, mismatched dimensions and
  * unresolved unit conventions are explicit errors.
  */
 export function stockQuantity(entry: StockEntry, dimension: StockDimension, options: { allowZero?: boolean } = {}): StockResult {
@@ -42,8 +43,7 @@ export function stockQuantity(entry: StockEntry, dimension: StockDimension, opti
   const scale = dimension === 'mass' || dimension === 'volume' ? SCALE[dimension] : 1n;
   const exact = scaled.n * scale;
   if (scale === 1n && exact % scaled.d !== 0n) return { ok: false, message: 'Counts must be whole numbers. Use a weight or volume item for partial amounts.' };
-  const qty = (2n * exact + scaled.d) / (2n * scaled.d); // nearest base unit, halves up
-  if (qty === 0n && !options.allowZero) return { ok: false, message: 'That amount is too small to record. Use a smaller unit.' };
+  const qty = (exact + scaled.d - 1n) / scaled.d; // smallest whole base unit not below the entry
   if (qty > BigInt(MAX_STOCK)) return { ok: false, message: 'That amount is too large.' };
   return { ok: true, qty: Number(qty), text: `${entry.amount.trim().replace(/\s+/g, ' ')} ${entry.unit.trim().replace(/\s+/g, ' ')}`.slice(0, 60) };
 }

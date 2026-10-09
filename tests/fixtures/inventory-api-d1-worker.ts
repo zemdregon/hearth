@@ -31,6 +31,7 @@ app.post('/__habit', async c => {
 });
 app.use('/api/*', async (c, next) => {
   const id = c.req.header('x-member') ?? 'alex';
+  c.set('family', { members: [], questionPair: null, timezone: 'UTC', origin: '' });
   c.set('user', { id, name: id, role: id === 'alex' ? 'admin' : 'member', color: '#000000' });
   await next();
 });

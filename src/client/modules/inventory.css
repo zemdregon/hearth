@@ -61,9 +61,28 @@
 .inventory-history-meta { color: var(--inv-soft); font-size: 13px !important; }
 .inventory-delta { font-weight: 650; }
 .inventory-end:focus-visible { outline: 2px solid var(--night-focus, var(--inv-accent)); outline-offset: 3px; }
+.inventory-matching { display: grid; gap: 14px; padding: 18px; min-width: 0; }
+.inventory-matching h2 { margin: 0; font-size: 23px; line-height: 1.25; color: var(--inv-ink); }
+.inventory-matching h3 { margin: 0 0 6px; font-family: var(--serif); font-size: 19px; font-weight: 600; color: var(--inv-ink); }
+.inventory-soft { margin: 0; color: var(--inv-soft); font-size: 14px; line-height: 1.55; }
+.inventory-field-name { font-size: 14px; font-weight: 600; color: var(--inv-ink); }
+.inventory-readonly { margin: 0; font-size: 15px; font-weight: 600; color: var(--inv-ink); }
+.inventory-match-block { border-top: 1px solid var(--line); padding-top: 12px; }
+.inventory-match-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; font-size: 15px; }
+.inventory-match-text small { color: var(--inv-soft); font-size: 13px; }
+
+.inventory-cooking { display: grid; gap: 14px; padding: 18px; min-width: 0; }
+.inventory-cooking h2 { margin: 0; font-size: 23px; line-height: 1.25; color: var(--inv-ink); }
+.inventory-cooking h2:focus-visible { outline: 2px solid var(--night-focus, var(--inv-accent)); outline-offset: 3px; border-radius: 4px; }
+.inventory-cooked li { gap: 6px; }
+.inventory-cooked .pill { white-space: normal; }
+.inventory-undo-list li { gap: 4px 12px; }
+.inventory-undo-list li > span { font-weight: 650; }
 
 @media (min-width: 640px) {
+  .inventory-cooking { padding: 22px 24px; }
   .inventory-group { padding: 22px 24px 10px; }
+  .inventory-matching { padding: 22px 24px; }
   .inventory-lot-actions { display: flex; flex-wrap: wrap; }
   .inventory-lot-actions .button { width: auto; padding-inline: 13px; }
 }
@@ -77,6 +96,7 @@
   html[data-theme="dark"] .inventory-module .card { background: var(--paper); border-color: var(--line); }
   html[data-theme="dark"] .inventory-module select.input option { background: var(--night-input); color: var(--night-text); }
   html[data-theme="dark"] .inventory-choice label { color: var(--night-text); }
+  html[data-theme="dark"] .inventory-cooking h2:focus-visible,
   html[data-theme="dark"] .inventory-group-head h2:focus-visible,
   html[data-theme="dark"] .inventory-end:focus-visible { outline-color: var(--night-focus); }
 }

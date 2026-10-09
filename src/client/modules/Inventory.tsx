@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from 'react';
 import { Archive, CalendarDays, ClipboardCheck, History, MapPin, Minus, Package, Pencil, Plus, RefreshCw } from 'lucide-react';
 import { formatDate, todayInTimezone } from '../../shared/calendar';
-import { measurementProfiles, stockQuantity } from '../../shared/inventory/stock';
+import { formatStock, measurementProfiles, stockQuantity } from '../../shared/inventory/stock';
 import type { StockDimension } from '../../shared/inventory/stock';
 import { resolveUnit } from '../../shared/inventory/units';
 import type { MeasurementProfile } from '../../shared/inventory/units';
-import type { InvItem, InvLedgerEntry, InvLocation, InvLocationKind, InvLot, InventoryState } from '../../shared/inventory/wire';
+import type { InvAlias, InvCalibration, InvConsumption, InvItem, InvLedgerEntry, InvLocation, InvLocationKind, InvLot, InvProfile, InvSettings, InventoryState } from '../../shared/inventory/wire';
 import { api, useFamily } from '../store';
 import { Badge, Button, EmptyState, Modal, SectionHeader } from '../components/ui';
 import { FamilyFeedback } from './family-ui';
@@ -15,48 +15,50 @@ import './inventory.css';
 /* ------------------------------------------------------------------ display helpers */
 
 const COUNT_PLURALS: Readonly<Record<string, string>> = { piece: 'pieces', egg: 'eggs', clove: 'cloves', head: 'heads', bunch: 'bunches', slice: 'slices', sprig: 'sprigs' };
-const DIMENSION_LABELS: Readonly<Record<StockDimension, string>> = {
+export const DIMENSION_LABELS: Readonly<Record<StockDimension, string>> = {
   mass: 'Weight (grams, ounces, pounds)', volume: 'Volume (millilitres, cups, spoons)', 'count:piece': 'Pieces', 'count:egg': 'Eggs', 'count:clove': 'Cloves',
   'count:head': 'Heads', 'count:bunch': 'Bunches', 'count:slice': 'Slices', 'count:sprig': 'Sprigs',
 };
 const LOCATION_KINDS: readonly { value: InvLocationKind; label: string }[] = [
   { value: 'pantry', label: 'Pantry' }, { value: 'fridge', label: 'Fridge' }, { value: 'freezer', label: 'Freezer' }, { value: 'other', label: 'Somewhere else' },
 ];
-const PROFILE_LABELS: Readonly<Record<MeasurementProfile, string>> = { 'us-customary': 'US customary', 'us-label': 'US nutrition label', 'metric-250': 'Metric (250 mL cup)' };
+export const PROFILE_LABELS: Readonly<Record<MeasurementProfile, string>> = { 'us-customary': 'US customary', 'us-label': 'US nutrition label', 'metric-250': 'Metric (250 mL cup)' };
 const CONVENTION_UNITS: ReadonlySet<string> = new Set(['tsp', 'tbsp', 'fl oz', 'cup', 'pint', 'quart', 'gallon']);
-const MASS_UNITS: readonly (readonly [string, string])[] = [['g', 'g'], ['kg', 'kg'], ['oz-mass', 'oz (weight)'], ['lb', 'lb'], ['mg', 'mg']];
-const VOLUME_UNITS: readonly (readonly [string, string])[] = [['ml', 'mL'], ['l', 'L'], ['tsp', 'tsp'], ['tbsp', 'tbsp'], ['fl oz', 'fl oz'], ['cup', 'cup'], ['pint', 'pint'], ['quart', 'quart'], ['gallon', 'gallon']];
+export const MASS_UNITS: readonly (readonly [string, string])[] = [['g', 'g'], ['kg', 'kg'], ['oz-mass', 'oz (weight)'], ['lb', 'lb'], ['mg', 'mg']];
+export const VOLUME_UNITS: readonly (readonly [string, string])[] = [['ml', 'mL'], ['l', 'L'], ['tsp', 'tsp'], ['tbsp', 'tbsp'], ['fl oz', 'fl oz'], ['cup', 'cup'], ['pint', 'pint'], ['quart', 'quart'], ['gallon', 'gallon']];
 const ESTIMATE_STEPS: readonly (readonly [number, string])[] = [[500, 'Very close (give or take 5%)'], [1000, 'Close (give or take 10%)'], [2500, 'A rough guess (give or take 25%)'], [5000, 'A very rough guess (give or take 50%)']];
 const HISTORY_PAGE = 20;
 const KIND_LABELS: Readonly<Record<InvLedgerEntry['kind'], string>> = { add: 'Added', adjust: 'Changed', count: 'Recounted', archive: 'Archived' };
 const CONVENTION_MESSAGE = 'Cups, spoons and fluid ounces differ by region. Choose a measuring convention first.';
 
 const plural = (name: string, count: number) => count === 1 ? name : COUNT_PLURALS[name] ?? `${name}s`;
-function unitsFor(dimension: StockDimension): readonly (readonly [string, string])[] {
+export function unitsFor(dimension: StockDimension): readonly (readonly [string, string])[] {
   if (dimension === 'mass') return MASS_UNITS;
   if (dimension === 'volume') return VOLUME_UNITS;
   const name = dimension.slice(6);
   return [[name, COUNT_PLURALS[name] ?? `${name}s`]];
 }
-const needsConvention = (unit: string) => CONVENTION_UNITS.has(unit);
+/** A short, muted way to tell items apart in a list: how this item is measured, without repeating its name. */
+export const dimensionHint = (dimension: StockDimension) => dimension === 'mass' ? 'Weight' : dimension === 'volume' ? 'Volume' : `counted in ${DIMENSION_LABELS[dimension].toLowerCase()}`;
+export const needsConvention = (unit: string) => CONVENTION_UNITS.has(unit);
 const conventionsFor = (unit: string) => measurementProfiles.filter(profile => resolveUnit(unit, profile).ok);
 
 /** Quantities are stored as tiny integers; people only ever see grams, millilitres or counts. */
-function show(qty: number, dimension: StockDimension): string {
+export function show(qty: number, dimension: StockDimension): string {
   if (dimension.startsWith('count:')) return `${qty.toLocaleString('en')} ${plural(dimension.slice(6), qty)}`;
   const steps = dimension === 'mass' ? [['kg', 1e12], ['g', 1e9], ['mg', 1e6], ['µg', 1e3], ['ng', 1]] as const : [['L', 1e9], ['mL', 1e6], ['µL', 1e3], ['nL', 1]] as const;
   if (qty === 0) return dimension === 'mass' ? '0 g' : '0 mL';
   const [name, factor] = steps.find(([, size]) => qty >= size) ?? steps[steps.length - 1];
   return `${Math.round(qty / factor * 1000) / 1000} ${name}`;
 }
-const statusOf = (error: unknown) => typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number' ? error.status : 0;
-const messageOf = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
-const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
+export const statusOf = (error: unknown) => typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number' ? error.status : 0;
+export const messageOf = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+export const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
 
 /* ------------------------------------------------------------------ shared form pieces */
 
-type FieldProps = { id: string; 'aria-describedby'?: string; 'aria-invalid'?: true };
-function Fld({ id, label, hint, error, children }: { id: string; label: string; hint?: string; error?: string | null; children: (props: FieldProps) => ReactNode }) {
+export type FieldProps = { id: string; 'aria-describedby'?: string; 'aria-invalid'?: true };
+export function Fld({ id, label, hint, error, children }: { id: string; label: string; hint?: string; error?: string | null; children: (props: FieldProps) => ReactNode }) {
   const describedBy = [hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ') || undefined;
   return <div className={`field ${error ? 'has-error' : ''}`}>
     <label htmlFor={id}>{label}</label>
@@ -66,9 +68,9 @@ function Fld({ id, label, hint, error, children }: { id: string; label: string; 
   </div>;
 }
 
-type Amount = { amount: string; unit: string; profile: MeasurementProfile | '' };
-type Memory = MutableRefObject<MeasurementProfile | ''>;
-type AmountProblem = { field: 'amount' | 'profile'; message: string };
+export type Amount = { amount: string; unit: string; profile: MeasurementProfile | '' };
+export type Memory = MutableRefObject<MeasurementProfile | ''>;
+export type AmountProblem = { field: 'amount' | 'profile'; message: string };
 
 function checkAmount(value: Amount, dimension: StockDimension, options: { allowZero?: boolean }): AmountProblem | null {
   try {
@@ -83,7 +85,7 @@ function quantityOf(value: Amount, dimension: StockDimension, options: { allowZe
   return result.ok ? result.qty : 0;
 }
 
-function AmountInputs({ uid, dimension, value, memory, problem, onChange, label = 'Amount' }: { uid: string; dimension: StockDimension; value: Amount; memory: Memory; problem: AmountProblem | null; onChange: (next: Amount) => void; label?: string }) {
+export function AmountInputs({ uid, dimension, units, value, memory, problem, onChange, label = 'Amount', unitLabel = 'Unit', hint = 'For example 2, 1 1/2 or 0.5' }: { uid: string; dimension: StockDimension; units?: readonly (readonly [string, string])[]; value: Amount; memory: Memory; problem: AmountProblem | null; onChange: (next: Amount) => void; label?: string; unitLabel?: string; hint?: string }) {
   const options = conventionsFor(value.unit);
   function changeUnit(unit: string) {
     const wanted = value.profile || memory.current;
@@ -91,11 +93,11 @@ function AmountInputs({ uid, dimension, value, memory, problem, onChange, label 
   }
   return <>
     <div className="inventory-amount-row">
-      <Fld id={`${uid}-amount`} label={label} hint="For example 2, 1 1/2 or 0.5" error={problem?.field === 'amount' ? problem.message : null}>
+      <Fld id={`${uid}-amount`} label={label} hint={hint} error={problem?.field === 'amount' ? problem.message : null}>
         {props => <input {...props} className="input" value={value.amount} maxLength={64} autoComplete="off" required onChange={event => onChange({ ...value, amount: event.target.value })} />}
       </Fld>
-      <Fld id={`${uid}-unit`} label="Unit">
-        {props => <select {...props} className="input" value={value.unit} onChange={event => changeUnit(event.target.value)}>{unitsFor(dimension).map(([unit, name]) => <option key={unit} value={unit}>{name}</option>)}</select>}
+      <Fld id={`${uid}-unit`} label={unitLabel}>
+        {props => <select {...props} className="input" value={value.unit} onChange={event => changeUnit(event.target.value)}>{(units ?? unitsFor(dimension)).map(([unit, name]) => <option key={unit} value={unit}>{name}</option>)}</select>}
       </Fld>
     </div>
     {needsConvention(value.unit) && <Fld id={`${uid}-profile`} label="Measuring convention" hint="Cups and spoons differ by region, so pick the one your measuring set follows." error={problem?.field === 'profile' ? problem.message : null}>
@@ -121,12 +123,12 @@ function Precision({ uid, precision, step, onChange, current }: { uid: string; p
 }
 
 /** Dialog content mounts after the shell opens it, so move focus to the first field on the next frame. */
-function useFocusFirst(id: string) {
+export function useFocusFirst(id: string) {
   useEffect(() => { const frame = requestAnimationFrame(() => document.getElementById(id)?.focus()); return () => cancelAnimationFrame(frame); }, [id]);
 }
 
 /** One write at a time. The same request id is reused while the same request is retried, and dropped once it changes. */
-function useWrite(onConflict: () => void) {
+export function useWrite(onConflict: () => void, explain?: (status: number, cause: unknown) => string | undefined) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const flight = useRef(false);
@@ -146,7 +148,7 @@ function useWrite(onConflict: () => void) {
     catch (cause) {
       const status = statusOf(cause);
       if (status === 409 || status === 404 || status === 403) onConflict();
-      if (mounted.current) setError(status === 409 || status === 404 ? `${messageOf(cause)} We refreshed your list; your entries are still here.` : messageOf(cause));
+      if (mounted.current) setError(explain?.(status, cause) ?? (status === 409 || status === 404 ? `${messageOf(cause)} We refreshed your list; your entries are still here.` : messageOf(cause)));
       return false;
     } finally { flight.current = false; if (mounted.current) setBusy(false); }
   }
@@ -437,12 +439,11 @@ function HistoryDialog({ ctx }: { ctx: Ctx }) {
       <FamilyFeedback error={error} />
       {entries.length > 0 && <ol className="inventory-history" aria-label="Stock history">
         {entries.map(entry => {
-          const item = ctx.state.items.find(candidate => candidate.id === entry.itemId);
           const who = members.find(member => member.id === entry.memberId)?.name ?? 'Someone';
-          const change = !item ? null : entry.delta === 0 ? 'No change' : `${entry.delta > 0 ? '+' : '−'}${show(Math.abs(entry.delta), item.dim)}`;
+          const change = entry.delta === 0 ? 'No change' : `${entry.delta > 0 ? '+' : '−'}${formatStock(Math.abs(entry.delta), entry.dim)}`;
           return <li key={entry.seq}>
-            <div className="inventory-history-top"><strong>{item?.name ?? 'An item you archived'}</strong><Badge tone="neutral">{KIND_LABELS[entry.kind]}</Badge></div>
-            <p className="inventory-history-line">{change && <span className="inventory-delta">{change}</span>}{item && <span> · now {show(entry.qtyAfter, item.dim)}</span>}{entry.reason && <span> · {entry.reason}</span>}</p>
+            <div className="inventory-history-top"><strong>{entry.itemName}</strong><Badge tone="neutral">{KIND_LABELS[entry.kind]}</Badge></div>
+            <p className="inventory-history-line"><span className="inventory-delta">{change}</span><span> · now {formatStock(entry.qtyAfter, entry.dim)}</span>{entry.reason && <span> · {entry.reason}</span>}</p>
             <p className="inventory-history-meta">{who} · {when(entry.createdAt)}</p>
           </li>;
         })}
@@ -453,6 +454,186 @@ function HistoryDialog({ ctx }: { ctx: Ctx }) {
       {!loading && error && <Button variant="secondary" onClick={() => void more(next, entries.length > 0)}>Try again</Button>}
       {finished && entries.length > 0 && <p ref={endRef} tabIndex={-1} className="muted inventory-end">That’s everything so far.</p>}
       <div className="family-form-actions"><Button type="button" variant="secondary" onClick={ctx.close}>Close</Button></div>
+    </div>
+  </Modal>;
+}
+
+/* ------------------------------------------------------------------ recipe matching */
+
+/** Older responses and cached mocks may predate aliases, conversions and the measuring convention. */
+function withMatching(next: InventoryState): InventoryState {
+  return { ...next, aliases: next.aliases ?? [], calibrations: next.calibrations ?? [], settings: next.settings ?? { measureProfile: null, version: 0 } };
+}
+const unitLabel = (unit: string) => [...MASS_UNITS, ...VOLUME_UNITS].find(([value]) => value === unit)?.[1] ?? unit;
+function describeSide(amount: string, unit: string, profile: InvProfile | null): string {
+  const label = unitLabel(unit);
+  const named = COUNT_PLURALS[unit] && amount.trim() !== '1' ? COUNT_PLURALS[unit] : label;
+  return `${amount} ${named}${profile ? ` (${PROFILE_LABELS[profile]})` : ''}`;
+}
+export const describeCalibration = (c: InvCalibration) => `${describeSide(c.fromAmount, c.fromUnit, c.fromProfile)} = ${describeSide(c.toAmount, c.toUnit, c.toProfile)}`;
+
+function RecipeMatching({ ctx, admin }: { ctx: Ctx; admin: boolean }) {
+  const uid = useId();
+  const write = useWrite(ctx.quietReload);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const { aliases, calibrations, settings } = ctx.state;
+  const itemName = (id: string) => ctx.state.items.find(item => item.id === id)?.name ?? 'An item you archived';
+
+  async function chooseProfile(value: string) {
+    const measureProfile = value === '' ? null : value as InvProfile;
+    const ok = await write.run(async () => {
+      await api<InvSettings>('/api/inventory/settings', { method: 'PUT', body: JSON.stringify({ measureProfile, version: settings.version }) });
+      await ctx.refreshNow();
+    });
+    if (ok) ctx.announce(measureProfile ? `Measuring convention set to ${PROFILE_LABELS[measureProfile]}.` : 'Measuring convention cleared. Recipes with cups or spoons can’t be checked until you choose one.');
+  }
+  async function archive(path: 'aliases' | 'calibrations', id: string, version: number, what: string) {
+    const ok = await write.run(async () => { await api(`/api/inventory/${path}/${id}/archive`, post({ version })); await ctx.refreshNow(); });
+    if (ok) { setConfirming(null); ctx.announce(`Removed ${what}.`); }
+  }
+  function row(path: 'aliases' | 'calibrations', id: string, version: number, text: ReactNode, what: string) {
+    return <li key={id}>
+      <span className="inventory-match-text">{text}</span>
+      {confirming === id
+        ? <span className="inventory-row-actions"><Button size="sm" variant="secondary" onClick={() => setConfirming(null)} disabled={write.busy}>Keep<span className="sr-only"> {what}</span></Button><Button size="sm" variant="danger" busy={write.busy} onClick={() => void archive(path, id, version, what)}>Yes, remove<span className="sr-only"> {what}</span></Button></span>
+        : <Button size="sm" variant="ghost" disabled={write.busy} onClick={() => { setConfirming(id); write.setError(null); }}>Remove<span className="sr-only"> {what}</span></Button>}
+    </li>;
+  }
+  return <section className="card inventory-matching" aria-labelledby={`${uid}-title`}>
+    <h2 id={`${uid}-title`}>Recipe matching</h2>
+    <p className="inventory-soft">How recipes are compared with what you have. Nothing here changes your stock, and recipes only use it when you ask for a pantry check.</p>
+    <FamilyFeedback error={write.error} />
+    {admin
+      ? <Fld id={`${uid}-profile`} label="Measuring convention" hint="Recipes say “1 cup” without saying which cup. Pick the convention your measuring set follows.">
+        {props => <select {...props} className="input" value={settings.measureProfile ?? ''} disabled={write.busy} onChange={event => void chooseProfile(event.target.value)}>
+          <option value="">Not chosen yet</option>{(Object.keys(PROFILE_LABELS) as InvProfile[]).map(profile => <option key={profile} value={profile}>{PROFILE_LABELS[profile]}</option>)}
+        </select>}
+      </Fld>
+      : <div className="field"><span className="inventory-field-name" id={`${uid}-profile-label`}>Measuring convention</span>
+        <p className="inventory-readonly" aria-labelledby={`${uid}-profile-label`}>{settings.measureProfile ? PROFILE_LABELS[settings.measureProfile] : 'Not chosen yet'}</p>
+        <span className="field-hint">Only the family administrator can change this.{settings.measureProfile ? '' : ' Until it is chosen, recipes that use cups or spoons can’t be checked.'}</span></div>}
+    <div className="inventory-match-block">
+      <h3>Ingredient names you matched</h3>
+      {aliases.length ? <ul className="inventory-places" aria-label="Matched ingredient names">{aliases.map((alias: InvAlias) => row('aliases', alias.id, alias.version, <><strong>{alias.name}</strong><small>is {itemName(alias.itemId)}</small></>, `the match for ${alias.name}`))}</ul>
+        : <p className="inventory-soft">None yet. Open a recipe and choose “Check pantry” to match its ingredients to what you keep.</p>}
+    </div>
+    <div className="inventory-match-block">
+      <h3>Conversions you accepted</h3>
+      {calibrations.length ? <ul className="inventory-places" aria-label="Accepted conversions">{calibrations.map((cal: InvCalibration) => row('calibrations', cal.id, cal.version, <><strong>{describeCalibration(cal)}</strong><small>{itemName(cal.itemId)}</small></>, `the conversion ${describeCalibration(cal)} for ${itemName(cal.itemId)}`))}</ul>
+        : <p className="inventory-soft">None yet. A conversion such as 1 cup = 120 g lets a recipe measured in cups be compared with flour you weigh.</p>}
+    </div>
+  </section>;
+}
+
+/* ------------------------------------------------------------------ cooking history and undo */
+
+const COOKING_PAGE = 20;
+const whenText = (seconds: number, timezone: string) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: timezone }).format(new Date(seconds * 1000));
+const servingsText = (n: number) => `${n} ${n === 1 ? 'serving' : 'servings'}`;
+/** One line per item: the cooking's lots add up, so a cook who used two lots of flour sees one amount of flour. */
+function amountsByItem(rows: { itemId: string; itemName: string; dim: StockDimension; amount: number }[]): { itemId: string; name: string; text: string }[] {
+  const totals = new Map<string, { itemName: string; dim: StockDimension; amount: number }>();
+  for (const row of rows) totals.set(row.itemId, { itemName: row.itemName, dim: row.dim, amount: (totals.get(row.itemId)?.amount ?? 0) + row.amount });
+  return [...totals].map(([itemId, total]) => ({ itemId, name: total.itemName, text: formatStock(total.amount, total.dim) }));
+}
+
+function CookingHistory({ ctx }: { ctx: Ctx }) {
+  const uid = useId();
+  const { members } = useFamily();
+  const [started, setStarted] = useState(false);
+  const [entries, setEntries] = useState<InvConsumption[]>([]);
+  const [next, setNext] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const seq = useRef(0);
+  const count = useRef(0);
+  count.current = entries.length;
+  const reloadState = useRef(ctx.quietReload);
+  reloadState.current = ctx.quietReload;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+
+  /** Late answers lose to newer requests, so an old page can never overwrite a fresher list. */
+  const fetchPage = useCallback(async (cursor: number | null, append: boolean) => {
+    const mine = ++seq.current;
+    setLoading(true); setError(null);
+    try {
+      const limit = append ? COOKING_PAGE : Math.min(50, Math.max(COOKING_PAGE, count.current));
+      const page = await api<{ entries: InvConsumption[]; next: number | null }>(`/api/inventory/consumptions?limit=${limit}${cursor ? `&before=${cursor}` : ''}`);
+      if (!mounted.current || mine !== seq.current) return;
+      setEntries(previous => append ? [...previous, ...page.entries.filter(entry => !previous.some(old => old.txnId === entry.txnId))] : page.entries);
+      setNext(page.next);
+    } catch (cause) {
+      if (!mounted.current || mine !== seq.current) return;
+      if (statusOf(cause) === 403) { setError('Inventory is turned off, so cooking history can’t be shown right now.'); reloadState.current(); }
+      else setError(messageOf(cause));
+    } finally { if (mounted.current && mine === seq.current) setLoading(false); }
+  }, []);
+
+  useEffect(() => { if (started) void fetchPage(null, false); }, [started, fetchPage]);
+  const [undoing, setUndoing] = useState<string | null>(null);
+  const undoTarget = entries.find(entry => entry.txnId === undoing) ?? null;
+  const closeUndo = () => { setUndoing(null); requestAnimationFrame(() => document.getElementById(`${uid}-title`)?.focus()); };
+
+  const title = (entry: InvConsumption) => entry.recipeTitle || 'A recipe';
+  return <section className="card inventory-cooking" aria-labelledby={`${uid}-title`}>
+    <h2 id={`${uid}-title`} tabIndex={-1}>Cooking history</h2>
+    <p className="inventory-soft">What you cooked from your recipes and what it used. Undo puts back exactly what was taken, while nothing else has touched those lots.</p>
+    {!started && <div><Button variant="secondary" onClick={() => setStarted(true)}><History size={16} aria-hidden="true" />Show cooking history</Button></div>}
+    <FamilyFeedback error={error} />
+    {entries.length > 0 && <ol className="inventory-history inventory-cooked" aria-label="Cooking history">
+      {entries.map(entry => {
+        const who = members.find(member => member.id === entry.memberId)?.name ?? 'Someone';
+        const reversal = entry.reverses !== null;
+        const used = amountsByItem(entry.lots.map(row => ({ itemId: row.itemId, itemName: row.itemName, dim: row.dim, amount: Math.abs(row.delta) })));
+        const beyond = amountsByItem(entry.shortfalls.map(row => ({ itemId: row.itemId, itemName: row.itemName, dim: row.dim, amount: row.amount })));
+        return <li key={entry.txnId}>
+          <div className="inventory-history-top">
+            <strong>{reversal ? `Undo of ${title(entry)}` : title(entry)}</strong>
+            {reversal ? <Badge tone="neutral">Put back</Badge> : entry.undoneBy ? <Badge tone="amber">Undone</Badge> : null}
+          </div>
+          <p className="inventory-history-meta">{servingsText(entry.servings)} · {who} · {whenText(entry.createdAt, ctx.timezone)}</p>
+          {used.length > 0 && <p className="inventory-history-line">{reversal ? 'Put back' : 'Taken'}: {used.map(row => `${row.name} ${row.text}`).join(', ')}</p>}
+          {beyond.length > 0 && <p className="inventory-history-line">Used beyond what was recorded (stock unchanged): {beyond.map(row => `${row.name} ${row.text}`).join(', ')}</p>}
+          {entry.canUndo && <div><Button size="sm" variant="secondary" onClick={() => { ctx.announce(''); setUndoing(entry.txnId); }}>Undo<span className="sr-only"> {title(entry)}, {whenText(entry.createdAt, ctx.timezone)}</span></Button></div>}
+        </li>;
+      })}
+    </ol>}
+    {started && loading && <p role="status" className="muted">Loading cooking history…</p>}
+    {started && !loading && !error && entries.length === 0 && <p className="muted" role="status">Nothing cooked yet. Open a recipe, run a pantry check and choose “Cook this” to record what you used.</p>}
+    {started && !loading && next !== null && <div><Button variant="secondary" onClick={() => void fetchPage(next, true)}>Load more</Button></div>}
+    {started && !loading && error && <div><Button variant="secondary" onClick={() => void fetchPage(null, false)}><RefreshCw size={14} aria-hidden="true" />Try again</Button></div>}
+  {undoTarget && <UndoDialog ctx={ctx} entry={undoTarget} onClose={closeUndo} onDone={() => { setUndoing(null); void fetchPage(null, false); }} onRefused={() => void fetchPage(null, false)} />}
+  </section>;
+}
+
+function UndoDialog({ ctx, entry, onClose, onDone, onRefused }: { ctx: Ctx; entry: InvConsumption; onClose: () => void; onDone: () => void; onRefused: () => void }) {
+  const [blocked, setBlocked] = useState(false);
+  const write = useWrite(() => { ctx.quietReload(); onRefused(); }, (status, cause) => {
+    if (status === 409) { setBlocked(true); return `${messageOf(cause)} Nothing was changed. If the shelf looks different now, recount the lot in Inventory instead.`; }
+    if (status === 404) return 'This cooking can’t be undone any more. Nothing was changed.';
+    if (status === 403) return 'Inventory is turned off, so nothing was changed. Your inventory is kept for when it’s back on.';
+    return undefined;
+  });
+  const lines = amountsByItem(entry.lots.map(row => ({ itemId: row.itemId, itemName: row.itemName, dim: row.dim, amount: Math.abs(row.delta) })));
+  async function confirm() {
+    const ok = await write.run(async () => {
+      await api(`/api/inventory/txns/${entry.txnId}/undo`, post({ txnId: write.txnFor(`undo:${entry.txnId}`) }));
+      await ctx.refreshNow();
+    });
+    if (ok) { ctx.announce(`Put back what was used for ${entry.recipeTitle}.`); onDone(); requestAnimationFrame(() => document.querySelector<HTMLElement>('.inventory-cooking > h2')?.focus()); }
+  }
+  const dead = blocked || !entry.canUndo;
+  return <Modal open onClose={() => { if (!write.busy) onClose(); }} title={`Undo ${entry.recipeTitle}?`} description="Puts back exactly what was taken. If anything about these lots changed since, undo is refused and you can recount instead.">
+    <div className="stack">
+      <FamilyFeedback error={write.error} />
+      {lines.length > 0 && <><p className="inventory-soft" id="inventory-undo-list">This will put back:</p>
+        <ul className="inventory-places inventory-undo-list" aria-labelledby="inventory-undo-list">{lines.map(row => <li key={row.itemId}><strong>{row.name}</strong><span>{row.text}</span></li>)}</ul></>}
+      {entry.shortfalls.length > 0 && <p className="inventory-soft">Amounts noted as used beyond what was recorded never changed your stock, so nothing is added for them.</p>}
+      <div className="family-form-actions">
+        <Button variant="secondary" onClick={onClose} disabled={write.busy}>{dead ? 'Close' : 'Keep it'}</Button>
+        {!dead && <Button onClick={() => void confirm()} busy={write.busy}>Yes, put it back</Button>}
+      </div>
     </div>
   </Modal>;
 }
@@ -508,6 +689,7 @@ function InventoryDemo() {
 function InventoryLive() {
   const family = useFamily();
   const { user, timezone } = family;
+  const admin = user.role === 'admin';
   const refreshFamily = useRef(family.refresh);
   refreshFamily.current = family.refresh;
   const today = todayInTimezone(timezone);
@@ -532,7 +714,7 @@ function InventoryLive() {
     try {
       const next = await api<InventoryState>('/api/inventory');
       if (!alive.current || seq !== loadSeq.current || owner !== userId.current) return;
-      setState(next); setLoadError(null); setPaused(false);
+      setState(withMatching(next)); setLoadError(null); setPaused(false);
     } catch (cause) {
       if (!alive.current || seq !== loadSeq.current || owner !== userId.current) return;
       if (statusOf(cause) === 403) { setPaused(true); setState(null); void refreshFamily.current().catch(() => undefined); }
@@ -602,6 +784,8 @@ function InventoryLive() {
             </section></li>;
           })}
         </ul>}
+      {ctx && <RecipeMatching ctx={ctx} admin={admin} />}
+      {ctx && <CookingHistory ctx={ctx} />}
     </>}
     {ctx && dialog?.kind === 'item' && <ItemDialog ctx={ctx} item={dialog.item} />}
     {ctx && dialog?.kind === 'stock' && <StockDialog ctx={ctx} item={dialog.item} />}

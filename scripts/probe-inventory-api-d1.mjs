@@ -66,9 +66,9 @@ try {
   // Real migration state.
   assert.deepEqual(await sql("SELECT id, enabled FROM modules WHERE id = 'inventory'"), [{ id: 'inventory', enabled: 0 }]);
   const tables = (await sql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'inv_%' ORDER BY name")).map(row => row.name);
-  assert.deepEqual(tables, ['inv_assert', 'inv_items', 'inv_ledger', 'inv_locations', 'inv_lots', 'inv_storage', 'inv_txns']);
-  assert.ok((await sql("SELECT COUNT(*) AS n FROM sqlite_schema WHERE type = 'trigger' AND name LIKE 'inv_%'"))[0].n === 12);
-  pass('migrations 0001-0008 apply to a fresh local D1; inventory module row exists and is disabled');
+  assert.deepEqual(tables, ['inv_aliases', 'inv_assert', 'inv_calibrations', 'inv_consumptions', 'inv_items', 'inv_ledger', 'inv_locations', 'inv_lots', 'inv_settings', 'inv_storage', 'inv_txns']);
+  assert.ok((await sql("SELECT COUNT(*) AS n FROM sqlite_schema WHERE type = 'trigger' AND name LIKE 'inv_%'"))[0].n === 19);
+  pass('migrations 0001-0010 apply to a fresh local D1; inventory module row exists and is disabled');
 
   assert.equal((await api('')).status, 403);
   assert.equal((await api('/items', { method: 'POST', body: { name: 'Flour', dim: 'mass' } })).status, 403);
@@ -137,6 +137,64 @@ try {
     await assert.rejects(() => sql(statement), /INVENTORY_LEDGER_IMMUTABLE/, statement);
   }
   pass('ledger and transaction immutability triggers fire on D1');
+
+  // Recipe mapping, conversions, settings and availability on D1.
+  const rice = (await api('/items', { method: 'POST', body: { name: 'Rice', dim: 'mass' } })).body;
+  assert.equal((await api('/lots', { method: 'POST', body: { txnId: txn(), itemId: rice.id, locationId: null, amount: '300', unit: 'g', precision: 'exact', note: '' } })).status, 201);
+  const alias = await api('/aliases', { method: 'POST', body: { name: 'Basmati  Rice', itemId: rice.id } });
+  assert.equal(alias.status, 201, JSON.stringify(alias.body));
+  assert.equal((await api('/aliases', { method: 'POST', body: { name: 'basmati rice', itemId: rice.id } })).status, 409);
+  const setup = await api('');
+  assert.equal((await api('/settings', { method: 'PUT', body: { measureProfile: 'us-label', version: setup.body.settings.version }, member: 'sam' })).status, 403);
+  assert.equal((await api('/settings', { method: 'PUT', body: { measureProfile: 'us-label', version: setup.body.settings.version } })).status, 200);
+  const cal = { itemId: rice.id, fromAmount: '1', fromUnit: 'cup', fromProfile: 'us-label', toAmount: '200', toUnit: 'g' };
+  assert.equal((await api('/calibrations', { method: 'POST', body: cal })).status, 201);
+  const dupe = await api('/calibrations', { method: 'POST', body: { ...cal, fromAmount: '2', toAmount: '400' } });
+  assert.equal(dupe.status, 409, JSON.stringify(dupe.body));
+  await sql("INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version) VALUES ('recipe-1', 'recipe', 'alex', ?, 'a', 'a', 1)", JSON.stringify({ title: 'Rice', description: '', servings: 2, prepMinutes: 1, cookMinutes: 1, ingredients: [{ name: 'Basmati rice', quantity: 1, unit: 'cup' }, { name: 'Salt', quantity: 1, unit: 'tsp' }], steps: ['Cook'], tags: [], favorite: false }));
+  const verdict = await api('/availability', { method: 'POST', body: { recipeId: 'recipe-1', servings: 2, exclude: [] } });
+  assert.equal(verdict.status, 200, JSON.stringify(verdict.body));
+  assert.deepEqual([verdict.body.verdict, verdict.body.unmapped.map(line => line.name), verdict.body.items[0].verdict, verdict.body.items[0].reasons], ['unknown', ['Salt'], 'sufficient', ['ACCEPTED_CALIBRATION']]);
+  const scaled = await api('/availability', { method: 'POST', body: { recipeId: 'recipe-1', servings: 4, exclude: [1] } });
+  assert.deepEqual([scaled.body.verdict, scaled.body.items[0].short], ['insufficient', { lo: 100_000_000_000, hi: 100_000_000_000 }]);
+  await sql("DELETE FROM records WHERE id = 'recipe-1'");
+  pass('mappings, one-per-pair conversions, admin-only convention and availability work on D1');
+
+  // Confirmed cooking and undo on D1 (set-based json_each batches, numbered parameters).
+  const flourItem = (await api('/items', { method: 'POST', body: { name: 'Plain flour', dim: 'mass' } })).body;
+  const mk = async (amount, extra = {}) => (await api('/lots', { method: 'POST', body: { txnId: txn(), itemId: flourItem.id, locationId: null, amount, unit: 'g', precision: 'exact', note: '', ...extra } })).body.lots[0];
+  const lotA = await mk('200', { dateKind: 'best_by', date: '2027-01-01' });
+  const lotB = await mk('500');
+  await api('/aliases', { method: 'POST', body: { name: 'plain flour', itemId: flourItem.id } });
+  await sql("INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version) VALUES ('recipe-2', 'recipe', 'alex', ?, 'a', 'a', 1)", JSON.stringify({ title: 'Bread', description: '', servings: 2, prepMinutes: 1, cookMinutes: 1, ingredients: [{ name: 'Plain flour', quantity: 300, unit: 'g' }], steps: ['Bake'], tags: [], favorite: false }));
+  const plan = (await api('/consume/preview', { method: 'POST', body: { recipeId: 'recipe-2', servings: 2, exclude: [] } })).body;
+  const takes = plan.lines[0].allocations.filter(a => a.take > 0).map(a => ({ lotId: a.lotId, version: a.version, take: a.take }));
+  assert.deepEqual(takes.map(t => t.take), [200_000_000_000, 100_000_000_000]);
+  const cookId = txn();
+  const cookBody = { txnId: cookId, recipeId: 'recipe-2', servings: 2, takes, shortfalls: [] };
+  const cooked = await api('/consume', { method: 'POST', body: cookBody });
+  assert.equal(cooked.status, 201, JSON.stringify(cooked.body));
+  assert.deepEqual((await sql(`SELECT id, qty, version FROM inv_lots WHERE id IN ('${lotA.id}','${lotB.id}') ORDER BY qty`)).map(r => [r.qty, r.version]), [[0, 2], [400_000_000_000, 2]]);
+  assert.equal((await api('/consume', { method: 'POST', body: cookBody })).body.replayed, true);
+  const raceCook = await Promise.all([txn(), txn()].map(id => api('/consume', { method: 'POST', body: { ...cookBody, txnId: id, takes: [{ lotId: lotB.id, version: 2, take: 1_000_000_000 }] } })));
+  assert.deepEqual(raceCook.map(r => r.status).sort(), [201, 409], JSON.stringify(raceCook));
+  assert.equal((await api(`/txns/${cookId}/undo`, { method: 'POST', body: { txnId: txn() } })).status, 409, 'later activity on a lot makes undo inexact');
+  const secondPlan = (await api('/consume/preview', { method: 'POST', body: { recipeId: 'recipe-2', servings: 2, exclude: [] } })).body;
+  assert.equal(secondPlan.lines[0].allocations.find(a => a.lotId === lotB.id).available, 399_000_000_000);
+  // A clean cooking can be undone exactly once.
+  const lotC = await mk('50');
+  const cook2 = txn();
+  assert.equal((await api('/consume', { method: 'POST', body: { txnId: cook2, recipeId: 'recipe-2', servings: 2, takes: [{ lotId: lotC.id, version: 1, take: 20_000_000_000 }], shortfalls: [] } })).status, 201);
+  const undoId = txn();
+  assert.equal((await api(`/txns/${cook2}/undo`, { method: 'POST', body: { txnId: undoId } })).status, 201);
+  assert.equal((await sql(`SELECT qty FROM inv_lots WHERE id = '${lotC.id}'`))[0].qty, 50_000_000_000);
+  assert.equal((await api(`/txns/${cook2}/undo`, { method: 'POST', body: { txnId: txn() } })).status, 409);
+  assert.equal((await api(`/txns/${cook2}/undo`, { method: 'POST', body: { txnId: undoId } })).body.replayed, true);
+  const history = (await api('/consumptions')).body.entries;
+  assert.deepEqual(history.map(entry => [entry.recipeTitle, entry.reverses === cook2, entry.canUndo]), [['Bread', true, false], ['Bread', false, false], ['Bread', false, true], ['Bread', false, false]]); // undo, undone cooking, the untouched race winner, the first cooking (later activity)
+  await assert.rejects(() => sql('DELETE FROM inv_consumptions'), /INVENTORY_LEDGER_IMMUTABLE/);
+  await sql("DELETE FROM records WHERE id = 'recipe-2'");
+  pass('cooking preview, atomic multi-lot consume, one race winner, exact undo-once and history work on D1');
 
   // Habit backfill batch (json_each INSERT ... RETURNING) on D1, including all-or-nothing rollback.
   const created = (await json(await call('/__habit', { method: 'POST', body: { dates: ['2026-10-01', '2026-10-02', '2026-10-03'] } }))).body;

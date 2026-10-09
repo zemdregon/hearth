@@ -13,8 +13,9 @@ describe('stock entry', () => {
     expect(qty('1 1/2', 'egg', 'count:egg')).toMatchObject({ ok: false });
     expect(qty('6', 'eggs', 'count:egg')).toMatchObject({ ok: true, qty: 6 });
   });
-  it('rounds to the nearest base unit and refuses ambiguity, mismatch, ranges and zero', () => {
+  it('rounds up to the next base unit and refuses ambiguity, mismatch, ranges and zero', () => {
     expect(qty('1', 'tsp', 'volume', { profile: 'us-customary' })).toMatchObject({ ok: true, qty: 4_928_922 });
+    expect(qty('2', 'tsp', 'volume', { profile: 'us-customary' })).toMatchObject({ ok: true, qty: 9_857_844 }); // 9,857,843.1875 rounds up, never down
     expect(qty('1/3', 'cup', 'volume', { profile: 'us-customary' })).toMatchObject({ ok: true, qty: 78_862_746 });
     expect(qty('1', 'cup', 'volume')).toMatchObject({ ok: false });
     expect(qty('1', 'oz', 'mass')).toMatchObject({ ok: false });
