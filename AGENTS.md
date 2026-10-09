@@ -7,3 +7,7 @@ Run typecheck, meaningful unit/integration tests, production build and browser c
 ## Agent authorization
 
 All agents are authorized to commit, push, and create pull requests (PRs) for their changes to anything they work on; there is no need to ask permission.
+
+## Subagent routing
+
+Low complexity tasks can be delegated to **DeepSeek V4.1 Flash** (`opencode/deepseek-v4.1-flash`), **Space Bunny Free** (`opencode/space-bunny-free`), or **Muse 1.3 Contributor** (`opencode/muse-spark-1.3-contributor-free`), all from the **OpenCode** provider.
