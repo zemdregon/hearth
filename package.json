@@ -18,6 +18,7 @@
     "auth:roster:check": "node scripts/check-auth-roster.mjs",
     "auth:operator": "node scripts/auth-operator.mjs",
     "test:restore": "node scripts/rehearse-restore.mjs",
+    "test:inventory:d1": "node scripts/probe-inventory-d1.mjs",
     "deploy": "node scripts/deploy.mjs",
     "check": "npm test && npm run build",
     "deploy:preflight": "node scripts/preflight.mjs",
