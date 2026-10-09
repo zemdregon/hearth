@@ -10,11 +10,11 @@ export WEBAUTHN_RP_ID=hearth.kaina.one
 npm run deploy:preflight
 ```
 
-The existing `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` supply account access. These local settings and a successful preflight do not publish the Worker or create DNS/TLS resources. The first authorized deployment must still take the database backup baseline, apply all six migrations and publish the passkey configuration. Initial member enrollment remains a separate reviewed operator action.
+The existing `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` supply account access. On 2026-10-09 the authorized deployment retained a private D1 backup, applied all six migrations and published the passkey Worker at this hostname. HTTPS, anonymous private-API rejection and the public offline shell were verified live. Initial member enrollment remains a separate reviewed operator action.
 
 The Worker uses internal passkey-only authentication. No email identity provider, password, OTP or public signup is supported. Follow [AUTHENTICATION.md](AUTHENTICATION.md) for operator enrollment/recovery and the verification gates. Production release still requires a stable hostname, real-device checks and the live operational rehearsals recorded in the roadmap.
 
-Cloudflare Workers, D1 and Workers AI remain the hosting stack. Token/account configuration and read-only D1 access were verified on 2026-10-08; `wrangler.jsonc` identifies the existing `hearth-family-db`. Remote migrations, deployment and inference have not been verified.
+Cloudflare Workers, D1 and Workers AI remain the hosting stack. `wrangler.jsonc` identifies `hearth-family-db`; remote migrations and deployment are verified, while inference remains unverified. Keep `assets.html_handling: "none"`: Cloudflare's default HTML routing redirects `/index.html`, which the service worker's strict public-shell precache intentionally rejects. This [documented routing option](https://developers.cloudflare.com/workers/static-assets/routing/advanced/html-handling/) serves the exact shell path without relaxing redirect or document-hash checks. SPA fallback and Worker-first `/api/*` routing remain enabled.
 
 Release sequence after local verification:
 

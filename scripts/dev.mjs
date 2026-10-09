@@ -70,7 +70,7 @@ export function makeLocalWorkerConfig(base, directory) {
     main: resolve(directory, typeof base.main === 'string' ? base.main : 'src/server/index.ts'),
     compatibility_date: typeof base.compatibility_date === 'string' ? base.compatibility_date : '2026-01-01',
     compatibility_flags: Array.isArray(base.compatibility_flags) ? base.compatibility_flags.filter(flag => typeof flag === 'string') : ['nodejs_compat'],
-    assets: { directory: resolve(directory, typeof base.assets?.directory === 'string' ? base.assets.directory : 'dist'), binding: 'ASSETS', not_found_handling: 'single-page-application', run_worker_first: ['/api/*'] },
+    assets: { directory: resolve(directory, typeof base.assets?.directory === 'string' ? base.assets.directory : 'dist'), binding: 'ASSETS', html_handling: 'none', not_found_handling: 'single-page-application', run_worker_first: ['/api/*'] },
     d1_databases: [{ binding: 'DB', database_name: database.database_name, database_id: database.database_id, migrations_dir: resolve(directory, typeof database.migrations_dir === 'string' ? database.migrations_dir : 'migrations'), remote: false }],
     vars: { FAMILY_TIMEZONE: timezone },
     workers_dev: false, preview_urls: false, send_metrics: false, observability: { enabled: false },

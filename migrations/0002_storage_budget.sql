@@ -9,14 +9,14 @@ INSERT INTO family_storage (id, data_bytes, record_count)
   SELECT 1, COALESCE(SUM(length(CAST(data AS BLOB))), 0), COUNT(*) FROM records;
 
 CREATE TRIGGER records_budget_before_insert BEFORE INSERT ON records BEGIN
-  SELECT CASE WHEN (SELECT record_count FROM family_storage WHERE id = 1) >= 10000
-    OR (SELECT data_bytes FROM family_storage WHERE id = 1) + length(CAST(NEW.data AS BLOB)) > 8388608
-    THEN RAISE(ABORT, 'FAMILY_STORAGE_LIMIT') END;
+  SELECT RAISE(ABORT, 'FAMILY_STORAGE_LIMIT')
+    WHERE (SELECT record_count FROM family_storage WHERE id = 1) >= 10000
+      OR (SELECT data_bytes FROM family_storage WHERE id = 1) + length(CAST(NEW.data AS BLOB)) > 8388608;
 END;
 CREATE TRIGGER records_budget_before_update BEFORE UPDATE OF data ON records BEGIN
-  SELECT CASE WHEN length(CAST(NEW.data AS BLOB)) > length(CAST(OLD.data AS BLOB))
-    AND (SELECT data_bytes FROM family_storage WHERE id = 1) - length(CAST(OLD.data AS BLOB)) + length(CAST(NEW.data AS BLOB)) > 8388608
-    THEN RAISE(ABORT, 'FAMILY_STORAGE_LIMIT') END;
+  SELECT RAISE(ABORT, 'FAMILY_STORAGE_LIMIT')
+    WHERE length(CAST(NEW.data AS BLOB)) > length(CAST(OLD.data AS BLOB))
+      AND (SELECT data_bytes FROM family_storage WHERE id = 1) - length(CAST(OLD.data AS BLOB)) + length(CAST(NEW.data AS BLOB)) > 8388608;
 END;
 CREATE TRIGGER records_budget_after_insert AFTER INSERT ON records BEGIN
   UPDATE family_storage SET data_bytes = data_bytes + length(CAST(NEW.data AS BLOB)), record_count = record_count + 1 WHERE id = 1;

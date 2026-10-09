@@ -1,6 +1,8 @@
 # Release review
 
-## Current release gates — 2026-10-08
+## Current release gates — 2026-10-09
+
+Authorized deployment follow-up: the remote D1 backup was retained privately, all six migrations applied, and Worker version `b2fc7a7d-befe-4ccd-bbd5-98d2f1557a13` is live at **https://hearth.kaina.one**. Database integrity and foreign-key checks pass. Live API checks verify private-route denial, required invitation, exact RP ID, required user verification, secure ceremony cookies and rejection of cross-origin/legacy identity attempts. Desktop/mobile browser checks verify the passkey gate and public-only offline shell. Remote migration execution required equivalent CASE-free storage guards; default asset HTML redirects required explicit `html_handling: "none"`. Relevant follow-up suites pass (120 storage/schema/API tests, 80 deployment/PWA tests and typecheck), followed by the complete 558-test suite, TypeScript and production build. See the roadmap for exact evidence. Initial administrator enrollment, real-device passkeys/recovery, AI inference/licensing and isolated remote restore are still outstanding. The account and hostname paragraphs/table below describe the earlier predeployment state.
 
 Hostname follow-up, 2026-10-09: the selected origin is `https://hearth.kaina.one` with RP ID `hearth.kaina.one`. Read-only checks found no existing DNS record or Worker custom-domain binding at that hostname. Local route configuration, preflight with these environment values, all 48 deployment tests and Worker dry run pass. Publication and remote migrations remain unperformed. The account inspection below records the earlier state.
 
