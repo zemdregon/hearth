@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { addDays, todayInTimezone } from '../../src/shared/calendar';
+import AxeBuilder from '@axe-core/playwright';
+import { addDays, formatDate, todayInTimezone } from '../../src/shared/calendar';
 
 async function demo(page: Page, module: string) {
   await page.route('**/api/bootstrap', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Local demo test.' }) }));
@@ -44,6 +45,38 @@ test('habit creation and deletion preserve a usable empty calendar', async ({ pa
   await page.getByRole('dialog').getByRole('button', { name: 'Delete habit', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A few pages before bed' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'A little fresh air', exact: true })).toBeVisible();
+});
+
+test('a new habit can be backdated so earlier days count toward the streak', async ({ page }) => {
+  await demo(page, 'streaks');
+  const today = todayInTimezone('UTC');
+  await page.getByRole('button', { name: 'Add a habit' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Habit name').fill('Evening walk');
+  const start = dialog.getByLabel('Already doing this?');
+  await expect(start).toHaveAttribute('max', addDays(today, -1));
+  await expect(dialog.getByText('every day through yesterday will count', { exact: false })).toBeVisible();
+  expect((await new AxeBuilder({ page }).include('dialog[open], [role="dialog"]').analyze()).violations).toEqual([]);
+  await start.fill(addDays(today, -5));
+  await expect(dialog.getByText('Counts 5 days as checked in', { exact: false })).toBeVisible();
+  await start.fill(addDays(today, -400));
+  await expect(dialog.getByRole('alert').filter({ hasText: 'at most 366 days' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Create habit', exact: true })).toBeDisabled();
+  await start.fill(addDays(today, -5));
+  await dialog.getByRole('button', { name: 'Create habit', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Evening walk' })).toBeVisible();
+  const stats = page.locator('.streak-stats > div');
+  await expect(stats.nth(0)).toContainText('5');
+  await expect(stats.nth(1)).toContainText('5');
+  await expect(stats.nth(2)).toContainText('5');
+  await page.getByRole('button', { name: 'Check in for today', exact: true }).click();
+  await expect(stats.nth(0)).toContainText('6');
+  // A backfilled day is an ordinary check-in: unchecking it splits the streak.
+  const split = addDays(today, -3);
+  if (split.slice(0, 7) !== today.slice(0, 7)) await page.getByRole('button', { name: 'Previous month' }).click();
+  await page.getByRole('button', { name: new RegExp(`^${formatDate(split).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}, checked in`) }).click();
+  await expect(stats.nth(0)).toContainText('3');
+  await expect(stats.nth(2)).toContainText('5');
 });
 
 test('moods are private by default and sharing can be explicitly reversed', async ({ page }) => {

@@ -1,0 +1,82 @@
+/* Inventory uses the shared tokens, so the evening theme (which re-points --paper, --line, --green, --muted and the --night-* set) applies automatically. */
+.inventory-module { --inv-ink: var(--green-deep, #263f34); --inv-soft: var(--night-muted, #5b6657); --inv-raised: var(--night-raised, #f4f5ee); --inv-accent: var(--green, #315343); gap: 20px; }
+.inventory-module .section-header { flex-wrap: wrap; }
+.inventory-module .section-actions { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; min-width: 0; max-width: 100%; }
+.inventory-module .button, .inventory-module .section-actions .button { min-height: 44px; margin-top: 0; }
+.inventory-module .button.small { min-height: 44px; padding: 8px 13px; }
+.inventory-module .family-error { justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.inventory-module .family-error > span { flex: 1 1 200px; }
+.inventory-live { margin: 0; min-height: 0; color: var(--inv-accent); font-size: 14px; font-weight: 550; }
+.inventory-live:empty { display: none; }
+.inventory-summary { margin: -4px 0 0; color: var(--inv-soft); font-size: 14px; }
+.inventory-groups, .inventory-lots, .inventory-places, .inventory-history { list-style: none; margin: 0; padding: 0; }
+.inventory-groups { display: grid; gap: 16px; }
+.inventory-group { display: flex; flex-direction: column; gap: 6px; padding: 18px 18px 8px; min-width: 0; }
+.inventory-group-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 14px; }
+.inventory-group-head > div:first-child { flex: 1 1 180px; min-width: 0; }
+.inventory-group-head h2 { margin: 0; font-size: 23px; line-height: 1.25; overflow-wrap: anywhere; color: var(--inv-ink); }
+.inventory-group-head h2:focus-visible { outline: 2px solid var(--night-focus, var(--inv-accent)); outline-offset: 3px; border-radius: 4px; }
+.inventory-total { margin: 4px 0 0; color: var(--inv-soft); font-size: 14px; }
+.inventory-group-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.inventory-group-actions .button.ghost { min-width: 44px; }
+.inventory-lot { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-top: 1px solid var(--line); }
+.inventory-lot-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.inventory-qty { font-family: var(--serif); font-size: 21px; font-weight: 600; color: var(--inv-ink); overflow-wrap: anywhere; }
+.inventory-lot .pill { white-space: normal; }
+.inventory-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; color: var(--inv-soft); font-size: 14px; }
+.inventory-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.inventory-meta svg { flex-shrink: 0; }
+.inventory-note { margin: 0; font-size: 14px; color: var(--inv-ink); overflow-wrap: anywhere; }
+.inventory-lot-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.inventory-lot-actions .button { width: 100%; padding-inline: 8px; }
+.inventory-amount-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
+.inventory-amount-row > .field:only-child { grid-column: 1 / -1; }
+.inventory-choice { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.inventory-choice legend { padding: 0; margin-bottom: 4px; font-size: 14px; font-weight: 600; }
+.inventory-choice label { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; cursor: pointer; }
+.inventory-choice input { width: 20px; height: 20px; accent-color: var(--inv-accent); }
+.inventory-module fieldset.family-form-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.inventory-module .field > label { overflow-wrap: anywhere; }
+.inventory-module select.input { min-height: 44px; }
+.inventory-module .input { min-height: 44px; }
+.inventory-module .family-form-actions { flex-wrap: wrap; }
+.inventory-danger { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.inventory-danger p { margin: 0; font-size: 14px; }
+.inventory-row-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.inventory-confirm-line { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.inventory-places { display: grid; gap: 4px; }
+.inventory-places li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.inventory-places li:first-child { border-top: 0; }
+.inventory-place-name { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.inventory-place-name > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.inventory-place-name small { color: var(--inv-soft); font-size: 13px; }
+.inventory-add-place { border-top: 1px solid var(--line); padding-top: 16px; }
+.inventory-add-place legend { padding: 0; margin-bottom: 8px; font-family: var(--serif); font-size: 19px; }
+.inventory-history { display: grid; }
+.inventory-history li { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.inventory-history li:first-child { border-top: 0; padding-top: 0; }
+.inventory-history-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.inventory-history-top strong { overflow-wrap: anywhere; }
+.inventory-history p { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.inventory-history-meta { color: var(--inv-soft); font-size: 13px !important; }
+.inventory-delta { font-weight: 650; }
+.inventory-end:focus-visible { outline: 2px solid var(--night-focus, var(--inv-accent)); outline-offset: 3px; }
+
+@media (min-width: 640px) {
+  .inventory-group { padding: 22px 24px 10px; }
+  .inventory-lot-actions { display: flex; flex-wrap: wrap; }
+  .inventory-lot-actions .button { width: auto; padding-inline: 13px; }
+}
+@media (max-width: 380px) {
+  .inventory-amount-row { grid-template-columns: 1fr; }
+  .inventory-group { padding: 16px 14px 6px; }
+}
+
+@media screen {
+  html[data-theme="dark"] .inventory-module { --inv-ink: var(--green-deep); --inv-soft: var(--night-muted); --inv-accent: var(--green); }
+  html[data-theme="dark"] .inventory-module .card { background: var(--paper); border-color: var(--line); }
+  html[data-theme="dark"] .inventory-module select.input option { background: var(--night-input); color: var(--night-text); }
+  html[data-theme="dark"] .inventory-choice label { color: var(--night-text); }
+  html[data-theme="dark"] .inventory-group-head h2:focus-visible,
+  html[data-theme="dark"] .inventory-end:focus-visible { outline-color: var(--night-focus); }
+}

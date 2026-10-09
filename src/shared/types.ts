@@ -1,6 +1,7 @@
 import type { MemberIdentity } from './members';
+import type { InventoryExport } from './inventory/wire';
 
-export const moduleIds = ['recipes', 'tasks', 'notes', 'streaks', 'events', 'moods', 'questions', 'profiles', 'goals'] as const;
+export const moduleIds = ['recipes', 'tasks', 'notes', 'streaks', 'events', 'moods', 'questions', 'profiles', 'goals', 'inventory'] as const;
 export type ModuleId = typeof moduleIds[number];
 export type User = MemberIdentity;
 export type Ingredient = { name: string; quantity: number | null; quantityMax?: number; unit: string; note?: string };
@@ -22,7 +23,7 @@ export type FamilyRecord<K extends RecordKind = RecordKind> = K extends RecordKi
 export type ModuleConfig = { id: ModuleId; enabled: boolean };
 export type FamilyCapacity = 'available' | 'near-limit' | 'full';
 export type Bootstrap = { user: User; members: User[]; modules: ModuleConfig[]; records: FamilyRecord[]; timezone: string; questionPair: QuestionPair | null; capacity?: FamilyCapacity; demo?: boolean };
-export type FamilyExport = Bootstrap & { schemaVersion: number; exportedAt: string; scope: string };
+export type FamilyExport = Bootstrap & { schemaVersion: number; exportedAt: string; scope: string; inventory?: InventoryExport };
 export type RecipeImportRequest = { mode: 'url' | 'text' | 'image'; value: string; mimeType?: string };
 export type RecipeImportResponse = { recipe: Recipe; warnings: string[] };
 export const kindModule: Record<RecordKind, ModuleId> = { recipe:'recipes', task:'tasks', note:'notes', habit:'streaks', habitLog:'streaks', event:'events', mood:'moods', answer:'questions', profile:'profiles', goal:'goals' };

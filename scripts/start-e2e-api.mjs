@@ -1,7 +1,10 @@
 import { spawnSync, spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
 import { authSeed } from '../tests/fixtures/seed-auth.mjs';
 const args=['--config','tests/wrangler.test.jsonc','--persist-to','.wrangler/e2e'];
+// Disposable database: inventory history is append-only and references members, so reseeding
+// authentication over an existing one would fail. Start every run from a fresh database.
+rmSync('.wrangler/e2e',{recursive:true,force:true});
 const migration=spawnSync('npx',['wrangler','d1','migrations','apply','hearth-family-e2e','--local',...args],{stdio:'inherit'});
 if(migration.status!==0) process.exit(migration.status||1);
 // These synthetic sessions exist only in the isolated local e2e database.

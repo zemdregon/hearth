@@ -30,7 +30,7 @@ export function createDemo(): Bootstrap {
   add('profile-alex','profile',{bio:'Collector of recipes, little adventures, and good memories.',loves:['Slow Sunday mornings','Anything with lemon','A walk without a destination'],suggestions:['Let’s try a new recipe together','A handwritten note always makes my day']});
   add('profile-sam','profile',{bio:'Happiest outside, in a bookshop, or in the kitchen together.',loves:['Fresh flowers','Old movies','The first cup of coffee'],suggestions:['Plan a small surprise adventure','Save me the last pancake']},'sam');
   add('goal-trip','goal',{title:'Make time for a little adventure',description:'Plan a week somewhere we have never been. More memories, less rushing.',targetDate:dayOffset(120),completed:false,milestones:[{id:'g1',title:'Make our destination shortlist',done:true},{id:'g2',title:'Set a budget together',done:false},{id:'g3',title:'Book our time away',done:false}]});
-  return {user:demoMembers[0],members:demoMembers,modules:moduleIds.map(id=>({id,enabled:true})),records,timezone:'UTC',questionPair:['alex','sam'],demo:true};
+  return {user:demoMembers[0],members:demoMembers,modules:moduleIds.map(id=>({id,enabled:id!=='inventory'})),records,timezone:'UTC',questionPair:['alex','sam'],demo:true};
 }
 
 export function visibleDemo(source: Bootstrap): Bootstrap {

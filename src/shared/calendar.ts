@@ -92,3 +92,20 @@ export function streaksForDates(dates: readonly string[], today: string): { curr
   }
   return { current, longest, total: days.length };
 }
+
+/** Longest retroactive span when starting a habit: one year of history. */
+export const MAX_BACKFILL_DAYS = 366;
+
+/**
+ * Days to count as already done when a habit starts in the past: every day from `startDate`
+ * through yesterday. Today is left for the normal check-in, so an unfinished today never
+ * counts. Throws RangeError for a start that is invalid, today or later, or too far back.
+ */
+export function backfillDates(startDate: string, today: string): string[] {
+  const yesterday = addDays(today, -1);
+  if (!isValidDate(startDate)) throw new RangeError('Choose a valid start date.');
+  if (startDate > yesterday) throw new RangeError('Choose a start date before today.');
+  const span = daysBetween(startDate, yesterday) + 1;
+  if (span > MAX_BACKFILL_DAYS) throw new RangeError(`Start dates can go back at most ${MAX_BACKFILL_DAYS} days.`);
+  return Array.from({ length: span }, (_, index) => addDays(startDate, index));
+}

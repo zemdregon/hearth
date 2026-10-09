@@ -34,6 +34,7 @@ export const recordKindSchema = z.enum(['recipe', 'task', 'note', 'habit', 'habi
 export const createSchema = z.object({ kind: recordKindSchema, data: z.unknown() }).strict();
 export const updateSchema = z.object({ data: z.unknown(), version: z.number().int().positive().max(2_147_483_647) }).strict();
 export const deleteSchema = z.object({ version: z.number().int().positive().max(2_147_483_647) }).strict();
+export const habitCreateSchema = z.object({ data: z.unknown(), startDate: dateSchema.optional() }).strict();
 export const moduleSchema = z.object({ enabled: z.boolean() }).strict();
 export const importSchema = z.object({ mode: z.enum(['url', 'text', 'image']), value: z.string().min(1).max(7_000_000), mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional() }).strict();
 

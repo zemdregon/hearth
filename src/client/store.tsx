@@ -5,6 +5,7 @@ import type { Bootstrap, FamilyExport, FamilyRecord, ModuleConfig, ModuleId, Rec
 import { kindModule } from '../shared/types';
 import { createDemo, demoMembers, prepareDemoAnswer, visibleDemo } from './demo';
 import { sameQuestionPair } from '../shared/question-pairing';
+import { backfillDates, todayInTimezone } from '../shared/calendar';
 import { arrivedForEnrollment, cancelPasskeyCeremony, captureArrivalInvitation, createPasskey, verifyPasskey, type PasskeyRequest } from './passkeys';
 
 const anonymous: User = { id: '', name: '', role: 'member', color: '#557461' };
@@ -26,6 +27,8 @@ type FamilyContext = Bootstrap & {
   authenticated: boolean; loading: boolean; authBusy: boolean; logoutFailed: boolean; enrollmentRevision: number; error: string | null; errorStatus: number | null;
   addRecord<K extends RecordKind>(kind: K, data: RecordDataMap[K]): Promise<FamilyRecord<K>>;
   updateRecord<K extends RecordKind>(record: FamilyRecord<K>, data: RecordDataMap[K]): Promise<FamilyRecord<K>>;
+  /** Creates a habit; a past `startDate` also counts every day from then through yesterday, atomically. */
+  createHabit(data: RecordDataMap['habit'], startDate?: string): Promise<FamilyRecord<'habit'>>;
   deleteRecord(record: FamilyRecord): Promise<void>;
   setModule(id: ModuleId, enabled: boolean): Promise<void>;
   exportData(): Promise<FamilyExport>;
@@ -198,6 +201,21 @@ export function FamilyProvider({children}:{children:ReactNode}) {
     const next={...record,data,version:record.version+1,updatedAt:new Date().toISOString()} as FamilyRecord<K>;
     displayDemo({...demoRef.current,records:demoRef.current.records.map(r=>r.id===record.id?next:r)});return next;
   }
+  async function createHabit(data:RecordDataMap['habit'],startDate?:string):Promise<FamilyRecord<'habit'>> {
+    if(!demoRef.current) {
+      if(startDate===undefined) return addRecord('habit',data);
+      // The server returns only the habit; the refresh that follows every mutation loads its check-ins.
+      return (await mutate<{habit:FamilyRecord<'habit'>}>('/api/habits',{method:'POST',body:JSON.stringify({data,startDate})},(current,result)=>storeRecord(current,result.habit))).habit;
+    }
+    assertDemoAccess('habit');
+    const current=demoRef.current;
+    let dates:string[]=[];
+    if(startDate!==undefined) try {dates=backfillDates(startDate,todayInTimezone(current.timezone));} catch(e) {throw new Error(e instanceof RangeError?e.message:'Choose a valid start date.');}
+    const now=new Date().toISOString();
+    const habit={id:crypto.randomUUID(),kind:'habit',data,ownerId:current.user.id,version:1,createdAt:now,updatedAt:now} as FamilyRecord<'habit'>;
+    const logs=dates.map(date=>({id:crypto.randomUUID(),kind:'habitLog',data:{habitId:habit.id,date},ownerId:current.user.id,version:1,createdAt:now,updatedAt:now}) as FamilyRecord<'habitLog'>);
+    displayDemo({...current,records:[...current.records,habit,...logs]});return habit;
+  }
   async function deleteRecord(record:FamilyRecord) {
     if(!demoRef.current) {await mutate(`/api/records/${encodeURIComponent(record.id)}`,{method:'DELETE',body:JSON.stringify({version:record.version})},current=>({...current,capacity:undefined,records:current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id)&&!(record.kind==='answer'&&r.kind==='answer'&&r.ownerId!==current.user.id&&r.data.date===record.data.date&&r.data.questionId===record.data.questionId&&sameQuestionPair(r.data.participantIds,record.data.participantIds)))}));return;}
     assertDemoAccess(record.kind,record);displayDemo({...demoRef.current,records:demoRef.current.records.filter(r=>r.id!==record.id&&!(record.kind==='habit'&&r.kind==='habitLog'&&r.data.habitId===record.id))});
@@ -221,7 +239,7 @@ export function FamilyProvider({children}:{children:ReactNode}) {
       throw e;
     }
   }
-  return <Context.Provider value={{...state,authenticated,loading,authBusy,logoutFailed,enrollmentRevision,error,errorStatus,refresh,enterDemo,leaveDemo,switchDemoUser,signOut,signIn,enroll,registerPasskey,accountRequest,revokeAllSessions,captureAuthCancellation,addRecord,updateRecord,deleteRecord,setModule,exportData}}>{children}</Context.Provider>;
+  return <Context.Provider value={{...state,authenticated,loading,authBusy,logoutFailed,enrollmentRevision,error,errorStatus,refresh,enterDemo,leaveDemo,switchDemoUser,signOut,signIn,enroll,registerPasskey,accountRequest,revokeAllSessions,captureAuthCancellation,addRecord,updateRecord,createHabit,deleteRecord,setModule,exportData}}>{children}</Context.Provider>;
 }
 export function useFamily() {const context=useContext(Context);if(!context) throw new Error('FamilyProvider is required.');return context;}
 export function useRecords<K extends RecordKind>(kind:K):FamilyRecord<K>[] {return useFamily().records.filter(r=>r.kind===kind) as FamilyRecord<K>[];}

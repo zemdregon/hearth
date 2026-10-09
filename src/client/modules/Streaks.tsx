@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Flame, Plus, Trash2 } from 'lucide-react';
 import { useFamily, useRecords } from '../store';
 import { Button, EmptyState, Modal, SectionHeader } from '../components/ui';
-import { formatDate, monthGrid, shiftMonth, streaksForDates, todayInTimezone } from '../../shared/calendar';
+import { addDays, backfillDates, formatDate, MAX_BACKFILL_DAYS, monthGrid, shiftMonth, streaksForDates, todayInTimezone } from '../../shared/calendar';
 import type { FamilyRecord } from '../../shared/types';
 import './wellness.css';
 
 const habitColors = ['#2f624b', '#b65f45', '#776388', '#997027', '#426c85'];
 
 export function Streaks() {
-  const { user, members, timezone, addRecord, deleteRecord } = useFamily();
+  const { user, members, timezone, addRecord, createHabit, deleteRecord } = useFamily();
   const habits = useRecords('habit');
   const logs = useRecords('habitLog');
   const today = todayInTimezone(timezone);
@@ -18,10 +18,16 @@ export function Streaks() {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [color, setColor] = useState(habitColors[0]);
+  const [startDate, setStartDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [removeHabit, setRemoveHabit] = useState<FamilyRecord<'habit'> | null>(null);
   const previousDay = useRef(today);
+  const yesterday = addDays(today, -1);
+  const earliestStart = addDays(today, -MAX_BACKFILL_DAYS);
+  let startProblem = '';
+  let backfillCount = 0;
+  if (startDate) try { backfillCount = backfillDates(startDate, today).length; } catch (cause) { startProblem = cause instanceof RangeError ? cause.message : 'Choose a valid start date.'; }
   const selected = habits.find(habit => habit.id === selectedId) ?? habits[0];
   const selectedLogs = logs.filter(log => log.data.habitId === selected?.id);
   const dates = selectedLogs.map(log => log.data.date);
@@ -47,13 +53,13 @@ export function Streaks() {
     finally { setBusy(false); }
   }
 
-  async function createHabit(event: React.FormEvent) {
+  async function submitHabit(event: React.FormEvent) {
     event.preventDefault();
     if (!user || !title.trim() || busy) return;
     setBusy(true); setError('');
     try {
-      const record = await addRecord('habit', { title: title.trim(), userId: user.id, color });
-      setSelectedId(record.id); setMonth(today.slice(0, 7)); setTitle(''); setAdding(false);
+      const record = await createHabit({ title: title.trim(), userId: user.id, color }, startDate || undefined);
+      setSelectedId(record.id); setMonth(today.slice(0, 7)); setTitle(''); setStartDate(''); setAdding(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your habit could not be saved. Please try again.'); }
     finally { setBusy(false); }
   }
@@ -103,14 +109,18 @@ export function Streaks() {
         {ownHabit ? <div className="habit-checkin"><Button busy={busy} variant={completed.has(today) ? 'secondary' : 'primary'} onClick={() => void toggleDate(today)}><Check size={17} aria-hidden="true" />{completed.has(today) ? 'Checked in today · undo' : 'Check in for today'}</Button><p className="muted">You can also select a past day. Your streak stays active through today if you checked in yesterday.</p></div> : <p className="muted habit-view-note">You’re cheering {owner?.name ?? 'your family member'} on. Only they can change their check-ins.</p>}
       </section>}
     </div>}
-    <Modal open={adding} onClose={() => { if (!busy) setAdding(false); }} title="One small habit" description="Pick a routine you want to make a little more room for.">
-      <form className="stack" onSubmit={event => void createHabit(event)}>
+    <Modal open={adding} onClose={() => { if (!busy) { setAdding(false); setStartDate(''); } }} title="One small habit" description="Pick a routine you want to make a little more room for.">
+      <form className="stack" onSubmit={event => void submitHabit(event)}>
         <fieldset className="wellness-form-fields stack" disabled={busy}>
         <label className="field">Habit name<input className="input" autoFocus required maxLength={120} value={title} onChange={event => setTitle(event.target.value)} placeholder="Read a few pages" /></label>
         <fieldset className="wellness-fieldset"><legend>Choose a color</legend><div className="habit-colors">{habitColors.map((value, index) => <label key={value} className="habit-color-choice" style={{ backgroundColor: value }}><input type="radio" name="habit-color" value={value} checked={color === value} onChange={() => setColor(value)} /><span className="sr-only">{['Forest', 'Terracotta', 'Lavender', 'Ochre', 'Blue'][index]}</span>{color === value && <Check size={20} aria-hidden="true" />}</label>)}</div></fieldset>
+        <label className="field">Already doing this? <span className="muted">(optional)</span>
+          <input className="input" type="date" name="habit-start" value={startDate} min={earliestStart} max={yesterday} onChange={event => setStartDate(event.target.value)} aria-describedby="habit-start-help" aria-invalid={Boolean(startProblem)} />
+        </label>
+        <p className="muted" id="habit-start-help" role={startProblem ? 'alert' : undefined}>{startProblem || (backfillCount ? `Counts ${backfillCount} ${backfillCount === 1 ? 'day' : 'days'} as checked in, ${formatDate(startDate)} through ${formatDate(yesterday)}. You can uncheck any day afterward.` : `Pick the day you began and every day through yesterday will count toward your streak. Up to ${MAX_BACKFILL_DAYS} days back.`)}</p>
         <p className="muted">Your family can see your progress. Only you can mark your days.</p>
         {error && <p className="wellness-error" role="alert">{error}</p>}
-        <Button type="submit" busy={busy} disabled={!title.trim()}>Create habit</Button>
+        <Button type="submit" busy={busy} disabled={!title.trim() || Boolean(startProblem)}>Create habit</Button>
         </fieldset>
       </form>
     </Modal>

@@ -11,7 +11,8 @@ const decode = (row: RecordRow): FamilyRecord => ({ id: row.id, kind: row.kind, 
 
 function moduleSettings(rows: ModuleRow[]): ModuleConfig[] {
   const settings = new Map(rows.map(row => [row.id, row.enabled === 1]));
-  return moduleIds.map(id => ({ id, enabled: settings.get(id) ?? true }));
+  // A missing row means enabled for original modules; inventory is opt-in and stays off.
+  return moduleIds.map(id => ({ id, enabled: settings.get(id) ?? id !== 'inventory' }));
 }
 
 export async function requireModule(db: D1Database, module: ModuleId): Promise<void> {
@@ -93,6 +94,29 @@ export async function createRecord<K extends RecordKind>(db: D1Database, user: U
       .bind(record.id, kind, user.id, JSON.stringify(data), now, now, kindModule[kind], habitId, habitId, user.id, ...pairBindings).first<{ id: string }>();
     if (!result) throw new ApiError(409, 'This change is no longer available. Refresh and try again.');
     return record;
+  } catch (error) { return translateConstraint(error); }
+}
+
+/**
+ * Creates a habit and its retroactive check-ins in one D1 batch: any failure (storage limit,
+ * disabled module, duplicate day) rolls back the habit too, so a backdated habit is never half-made.
+ */
+export async function createHabitWithHistory(db: D1Database, user: User, data: RecordDataMap['habit'], dates: string[]): Promise<FamilyRecord<'habit'>> {
+  const now = new Date().toISOString();
+  const habit = { id: crypto.randomUUID(), kind: 'habit', ownerId: user.id, data, createdAt: now, updatedAt: now, version: 1 } as FamilyRecord<'habit'>;
+  const logs = dates.map(date => ({ id: crypto.randomUUID(), data: JSON.stringify({ habitId: habit.id, date } satisfies RecordDataMap['habitLog']) }));
+  const enabled = "COALESCE((SELECT enabled FROM modules WHERE id = 'streaks'), 1) = 1";
+  try {
+    const results = await db.batch([
+      db.prepare(`INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version) SELECT ?, 'habit', ?, ?, ?, ?, 1 WHERE ${enabled} RETURNING id`)
+        .bind(habit.id, user.id, JSON.stringify(data), now, now),
+      db.prepare(`INSERT INTO records (id, kind, owner_id, data, created_at, updated_at, version)
+        SELECT json_extract(j.value, '$.id'), 'habitLog', ?, json_extract(j.value, '$.data'), ?, ?, 1 FROM json_each(?) AS j
+        WHERE ${enabled} AND EXISTS (SELECT 1 FROM records WHERE id = ? AND kind = 'habit' AND owner_id = ?) RETURNING id`)
+        .bind(user.id, now, now, JSON.stringify(logs), habit.id, user.id),
+    ]);
+    if (results[0].results.length !== 1 || results[1].results.length !== logs.length) throw new ApiError(409, 'This change is no longer available. Refresh and try again.');
+    return habit;
   } catch (error) { return translateConstraint(error); }
 }
 

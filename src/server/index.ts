@@ -4,15 +4,16 @@ import { moduleIds, kindModule } from '../shared/types';
 import type { RecordDataMap, RecordKind, User } from '../shared/types';
 import { sameQuestionPair } from '../shared/question-pairing';
 import { questionForDate } from '../shared/questions';
-import { todayInTimezone } from '../shared/calendar';
+import { backfillDates, todayInTimezone } from '../shared/calendar';
 import { authenticate, enforceOrigin, readConfig } from './auth';
 import { ApiError } from './env';
 import type { Env, Variables } from './env';
-import { consumeLimit, createRecord, deleteRecord, getRecord, readFamilySnapshot, requireModule, requireOwnership, updateRecord } from './db';
-import { createSchema, deleteSchema, importSchema, moduleSchema, parseInput, readJson, updateSchema, validateData } from './validation';
+import { consumeLimit, createHabitWithHistory, createRecord, deleteRecord, getRecord, readFamilySnapshot, requireModule, requireOwnership, updateRecord } from './db';
+import { createSchema, deleteSchema, habitCreateSchema, importSchema, moduleSchema, parseInput, readJson, updateSchema, validateData } from './validation';
 import { importRecipe, RecipeImportError } from './recipe-import';
 import { matchesSnapshot, snapshotTag } from './snapshot';
 import { passkeyRoutes } from './passkeys';
+import { inventoryEnabled, inventoryRoutes, readInventoryState, readLedger } from './inventory';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -98,6 +99,21 @@ app.post('/api/records', async c => {
   return c.json(record, 201);
 });
 
+app.post('/api/habits', async c => {
+  const { data: input, startDate } = parseInput(habitCreateSchema, await readJson(c.req.raw));
+  await requireModule(c.env.DB, 'streaks');
+  const data = validateData('habit', input);
+  const user = c.get('user');
+  if (data.userId !== user.id) throw new ApiError(403, 'Habits can only be created and changed by their owner.');
+  let dates: string[] = [];
+  if (startDate !== undefined) {
+    try { dates = backfillDates(startDate, todayInTimezone(c.get('family').timezone)); }
+    catch (error) { throw new ApiError(400, error instanceof RangeError ? error.message : 'Choose a valid start date.'); }
+  }
+  const habit = dates.length ? await createHabitWithHistory(c.env.DB, user, data, dates) : await createRecord(c.env.DB, user, 'habit', data);
+  return c.json({ habit, backfilled: dates.length }, 201);
+});
+
 app.patch('/api/records/:id', async c => {
   const { data: input, version } = parseInput(updateSchema, await readJson(c.req.raw));
   const record = await getRecord(c.env.DB, c.req.param('id'));
@@ -147,10 +163,17 @@ app.post('/api/recipes/import', async c => {
   return c.json(result);
 });
 
+app.route('/api/inventory', inventoryRoutes);
+
 app.get('/api/export', async c => {
   await consumeLimit(c.env.DB, `member:${c.get('user').id}:exports`, 10, 3600);
   c.header('Content-Disposition', `attachment; filename="hearth-export-${new Date().toISOString().slice(0, 10)}.json"`);
-  return c.json({ schemaVersion: 1, exportedAt: new Date().toISOString(), scope: 'Records visible to the exporting member from enabled modules.', ...await bootstrap(c) });
+  const base = { exportedAt: new Date().toISOString(), scope: 'Records visible to the exporting member from enabled modules.', ...await bootstrap(c) };
+  // Inventory is household-shared and opt-in: present only while its module is enabled. The
+  // export carries the newest history entries; the full ledger stays in storage.
+  if (!await inventoryEnabled(c.env.DB)) return c.json({ schemaVersion: 1, ...base });
+  const newest = await readLedger(c.env.DB, null, 1001);
+  return c.json({ schemaVersion: 2, ...base, inventory: { ...await readInventoryState(c.env.DB), ledger: newest.slice(0, 1000), ledgerTruncated: newest.length > 1000 } });
 });
 
 app.all('/api/*', c => c.json({ error: 'This API endpoint does not exist.' }, 404));

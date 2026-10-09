@@ -91,6 +91,10 @@ describe('passkey production deployment configuration', () => {
       writeFileSync(join(dir,'migrations/0005_passkey_browser_sessions.sql'),'');
       expect(run().status).toBe(1);
       writeFileSync(join(dir,'migrations/0006_passkey_credential_tombstones.sql'),'');
+      expect(run().status).toBe(1);
+      writeFileSync(join(dir,'migrations/0007_inventory_foundation.sql'),'');
+      expect(run().status).toBe(1);
+      writeFileSync(join(dir,'migrations/0008_modules_inventory.sql'),'');
       const complete=run(); expect(complete.status).toBe(0); expect(complete.stdout).toContain('checks passed');
     } finally { rmSync(dir,{recursive:true,force:true}); }
   });
