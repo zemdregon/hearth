@@ -254,6 +254,25 @@ export function wranglerArguments(target, { command, file }) {
   return [resolve(projectDirectory, 'node_modules/wrangler/bin/wrangler.js'), 'd1', 'execute', 'DB', '--config', target.config, target.remote ? '--remote' : '--local', ...(target.persistTo ? ['--persist-to', target.persistTo] : []), '--json', '--yes', ...(file ? ['--file', file] : ['--command', command])];
 }
 
+export function parseWranglerOutput(stdout, allowImportProgress = false) {
+  let json = stdout;
+  // Remote --file writes non-interactive upload progress to stdout even with
+  // --json. Accept only its bounded, known prelude; query output stays strict.
+  if (allowImportProgress) {
+    const start = stdout.indexOf('\n[');
+    if (start >= 0 && stdout.slice(0, start).trim()) {
+      const prefix = stdout.slice(0, start);
+      const lines = prefix.replace(/\u001b\[[0-9;]*m/g, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      if (Buffer.byteLength(prefix) > 8192 || lines[0] !== '├ Checking if file needs uploading' || !lines.every(line => line === '├ Checking if file needs uploading' || line === '│' || /^├ 🌀 Uploading [^\r\n]{1,1024}$/.test(line) || line === '│ 🌀 Uploading complete.')) throw new Error('D1 returned an unexpected response; operation outcome is unconfirmed.');
+      json = stdout.slice(start + 1);
+    }
+  }
+  let results;
+  try { results = JSON.parse(json); } catch { throw new Error('D1 returned an unexpected response; operation outcome is unconfirmed.'); }
+  if (!Array.isArray(results) || !results.length || results.some(result => !result || result.success !== true || !Array.isArray(result.results))) throw new Error('D1 did not confirm successful execution.');
+  return results.flatMap(result => result.results);
+}
+
 function executeWrangler(target, request) {
   // Pin the reviewed DB binding. Shared-worktree config changes during apply must
   // not redirect a write, and deployment/dev bindings are irrelevant here.
@@ -272,10 +291,7 @@ function executeWrangler(target, request) {
   }
   // Child output can contain SQL or environment details. Never forward it.
   if (result.error || result.status !== 0) throw new Error('D1 operation failed. Check configuration, applied migrations, database availability, and concurrent changes. Child output was suppressed.');
-  let results;
-  try { results = JSON.parse(result.stdout); } catch { throw new Error('D1 returned an unexpected response; operation outcome is unconfirmed.'); }
-  if (!Array.isArray(results) || !results.length || results.some(result => result.success !== true)) throw new Error('D1 did not confirm successful execution.');
-  return results.flatMap(result => result.results ?? []);
+  return parseWranglerOutput(result.stdout, Boolean(target.remote && request.file));
 }
 
 export function runOperator(options, { execute = executeWrangler, print = console.log } = {}) {

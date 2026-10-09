@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, s
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createOperatorMutation, createOperatorPlan, loadOperatorTarget, operatorSnapshotSql, parseOperatorArgs, runOperator, wranglerArguments } from '../scripts/auth-operator.mjs';
+import { createOperatorMutation, createOperatorPlan, loadOperatorTarget, operatorSnapshotSql, parseOperatorArgs, parseWranglerOutput, runOperator, wranglerArguments } from '../scripts/auth-operator.mjs';
 import type { OperatorOptions, OperatorRequest, OperatorSnapshot, OperatorTarget } from '../scripts/auth-operator.mjs';
 import type { EnrollmentRosterMember } from '../src/shared/members';
 
@@ -319,6 +319,49 @@ describe('bounded bootstrap and recovery authorizations', () => {
 });
 
 describe('private output and CLI reporting', () => {
+  const importProgress = '├ Checking if file needs uploading\n│\n├ 🌀 Uploading synthetic.sql\n│ 🌀 Uploading complete.\n│\n';
+  const importResponse = JSON.stringify([{ success: true, results: [{ 'Total queries executed': 5 }], finalBookmark: 'synthetic' }], null, 2);
+
+  it('accepts only the known remote-file progress prefix before a complete successful JSON result', () => {
+    expect(parseWranglerOutput(importProgress + importResponse, true)).toEqual([{ 'Total queries executed': 5 }]);
+    expect(parseWranglerOutput('├ Checking if file needs uploading\n│\n' + importResponse, true)).toEqual([{ 'Total queries executed': 5 }]);
+    expect(parseWranglerOutput(importProgress.replace('├', '\u001b[90m├\u001b[0m') + importResponse, true)).toEqual([{ 'Total queries executed': 5 }]);
+    expect(parseWranglerOutput(importResponse)).toEqual([{ 'Total queries executed': 5 }]);
+    expect(() => parseWranglerOutput(importProgress + importResponse)).toThrow('unexpected response');
+  });
+
+  it.each([
+    'private-sentinel\n' + importResponse,
+    importProgress + importResponse + '\nprivate-sentinel',
+    importProgress + importResponse + '\n' + importResponse,
+    importProgress + importResponse.slice(0, -1),
+    importProgress + '[{"success":false,"results":[]}]',
+    importProgress + '[{"success":true,"results":[]},{"success":false,"results":[]}]',
+    importProgress + '[{"results":[]}]',
+    importProgress + '{"success":true,"results":[]}',
+    importProgress + '[{"success":true,"results":{}}]',
+    '├ Checking if file needs uploading\n'.repeat(300) + importResponse,
+  ])('rejects malformed or unsuccessful remote import responses without echoing content %#', stdout => {
+    expect(() => parseWranglerOutput(stdout, true)).toThrow(/^D1 (returned an unexpected response; operation outcome is unconfirmed\.|did not confirm successful execution\.)$/);
+  });
+
+  it('still requires the exact audit receipt after a successful import response', () => {
+    seedRoster();
+    const dry = run(options('bootstrap'));
+    const output = join(folder, 'authorization.json');
+    expect(() => runOperator(options('bootstrap', { apply: true, review: dry.review, output }), {
+      execute: (target, request) => {
+        if (request.file) { execute(target, request); return parseWranglerOutput(importProgress + importResponse, true); }
+        if (request.command?.startsWith('SELECT id FROM auth_audit')) return [];
+        return execute(target, request);
+      },
+      print: message => messages.push(message),
+    })).toThrow('outcome is unconfirmed');
+    expect(db.prepare('SELECT count(*) n FROM auth_enrollment_grants').get()?.n).toBe(1);
+    expect(existsSync(output)).toBe(true);
+    expect(messages.join('\n')).not.toContain(JSON.parse(readFileSync(output, 'utf8')).token);
+  });
+
   it('creates no file/token on dry run, and apply saves a random token only in an exclusive 0600 file', () => {
     seedRoster();
     const output = join(folder, 'authorization.json');

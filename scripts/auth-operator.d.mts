@@ -27,4 +27,5 @@ export function operatorSnapshotSql(member?: string, allAuth?: boolean): string;
 export function createOperatorPlan(options: OperatorOptions, target: OperatorTarget, snapshot: OperatorSnapshot, roster?: EnrollmentRosterMember[]): OperatorPlan;
 export function createOperatorMutation(plan: OperatorPlan, material?: { now?: number; token?: string; operationId?: string; handles?: string[] }): { sql: string; operationId: string; grant: { memberId: string; purpose: string; token: string; createdAt: number; expiresAt: number } | null };
 export function wranglerArguments(target: OperatorTarget, request: OperatorRequest): string[];
+export function parseWranglerOutput(stdout: string, allowImportProgress?: boolean): Record<string, unknown>[];
 export function runOperator(options: OperatorOptions, dependencies?: { execute?: (target: OperatorTarget, request: OperatorRequest) => Record<string, unknown>[]; print?: (message: string) => void }): { applied: boolean; review: string };
