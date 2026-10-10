@@ -477,7 +477,9 @@ function TasksDialog({ titles, onList, addTask, onClose, onFinished }: { titles:
       // Whatever was created stays created; a retry only offers what is left, so nothing is added twice.
       const left = remaining.filter(title => !created.includes(title));
       if (created.length) onFinished(created, [], false);
-      if (mounted.current) { setRemaining(left); setError(`${created.length ? `Added ${count(created.length, 'task', 'tasks')}, but ` : ''}${messageOf(cause)}`); }
+      // 403 means Tasks was switched off while this dialog was open; say so instead of showing the server's bare text.
+      const reason = statusOf(cause) === 403 ? 'Tasks has been switched off, so tasks can’t be added right now. An administrator can turn it back on in Settings.' : messageOf(cause);
+      if (mounted.current) { setRemaining(left); setError(`${created.length ? `Added ${count(created.length, 'task', 'tasks')}, but ` : ''}${reason}`); }
     } finally { flight.current = false; if (mounted.current) setBusy(false); }
   }
   return <Modal open onClose={() => { if (!busy) onClose(); }} title="Add shortages to Tasks?" description="Each shortage becomes one ordinary task that your family can see in Tasks. Nothing is added until you confirm.">
@@ -659,9 +661,16 @@ function CookDialog({ recipeId, servings, exclude, lineText, lineName, onClose, 
 
   const household: MeasurementProfile | '' = inventory?.settings?.measureProfile ?? '';
   const lines = preview?.lines ?? [];
-  const plans = lines.map(line => planLine(line, edits[line.itemId] ?? freshCook(), household));
-  const stateOf = (line: ConsumeLine) => edits[line.itemId] ?? freshCook();
-  const patch = (itemId: string, change: (state: CookState) => CookState) => setEdits(previousEdits => ({ ...previousEdits, [itemId]: change(previousEdits[itemId] ?? freshCook()) }));
+  // With no recorded stock and no suggested amount there is nothing to take and nothing to note, yet a ticked
+  // box would demand an amount and make confirming fail until it was cleared by hand. Start it unticked.
+  // A stockless line that has a suggested amount stays ticked: its shortfall is recorded with the cooking.
+  const freshFor = (line: ConsumeLine): CookState => ({ ...freshCook(), included: line.suggested !== null || line.allocations.some(alloc => alloc.available > 0) });
+  const plans = lines.map(line => planLine(line, edits[line.itemId] ?? freshFor(line), household));
+  const stateOf = (line: ConsumeLine) => edits[line.itemId] ?? freshFor(line);
+  const patch = (itemId: string, change: (state: CookState) => CookState) => setEdits(previousEdits => {
+    const line = lines.find(candidate => candidate.itemId === itemId);
+    return { ...previousEdits, [itemId]: change(previousEdits[itemId] ?? (line ? freshFor(line) : freshCook())) };
+  });
 
   const included = lines.map((line, index) => ({ line, plan: plans[index], index })).filter(row => stateOf(row.line).included);
   const blocked = included.some(row => row.plan.problem !== null || row.plan.lotProblem);

@@ -301,8 +301,12 @@ function imageData(input: RecipeImportRequest): string {
   return `data:${mimeType};base64,${base64}`;
 }
 
+function aiNotConfigured() {
+  return new RecipeImportError('AI import is not configured. Your administrator must enable the Workers AI binding. You can still add a recipe manually.', 503);
+}
+
 async function extractWithAi(ai: Ai | undefined, value: string, image: boolean): Promise<Extracted> {
-  if (!ai) throw new RecipeImportError('AI import is not configured. Your administrator must enable the Workers AI binding. You can still add a recipe manually.', 503);
+  if (!ai) throw aiNotConfigured();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('AI extraction timed out')), AI_TIMEOUT_MS);
   let output: unknown;
@@ -361,6 +365,13 @@ function recipeDraft(extracted: Extracted, warnings: string[], sourceUrl?: strin
   if (new TextEncoder().encode(JSON.stringify(recipe)).byteLength > 32_768) throw new RecipeImportError('This recipe is too long to save. Shorten the source text or add it manually.', 413);
   warnings.push('Review every ingredient, quantity and instruction before saving. Nutrition and allergens have not been evaluated.');
   return { recipe, warnings };
+}
+
+/** Rejects a request that can never run, so it never spends the member's or deployment's import quota. */
+export function preflightImport(input: RecipeImportRequest, env: { AI?: Ai }): void {
+  if (input.mode === 'url') { publicUrl(input.value.trim()); return; }
+  if (!env.AI) throw aiNotConfigured();
+  if (input.mode === 'text' && input.value.length > MAX_TEXT_LENGTH) throw new RecipeImportError('Paste no more than 24,000 characters of recipe text.', 413);
 }
 
 /** Creates an unpersisted draft. Only explicit user-supplied recipe content is sent to AI. */

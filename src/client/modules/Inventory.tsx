@@ -263,7 +263,7 @@ function ItemDialog({ ctx, item }: { ctx: Ctx; item?: InvItem }) {
       </fieldset>
     </form>
     {item && <div className="inventory-danger">
-      {confirming ? <><p role="status">Archive {item.name}? It leaves your list. Its history is kept, and you can’t archive it while it still has stock.</p>
+      {confirming ? <><p role="status">Archive {item.name}? It leaves your list. Its history is kept. An item with stock, or one still used by a recipe match or conversion, can’t be archived until that is cleared.</p>
         <div className="inventory-row-actions"><Button variant="secondary" onClick={() => setConfirming(false)} disabled={write.busy}>Keep it</Button><Button variant="danger" onClick={() => void archive()} busy={write.busy}>Yes, archive {item.name}</Button></div></>
         : <Button variant="ghost" onClick={() => setConfirming(true)} disabled={write.busy}><Archive size={16} aria-hidden="true" />Archive this item</Button>}
     </div>}

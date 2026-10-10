@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { createDemo } from '../../src/client/demo';
 
+const focusIsOnPage = (page: Page) => expect.poll(() => page.evaluate(() => document.activeElement && document.activeElement !== document.body)).toBe(true);
+
 async function openDemo(page: Page, module: string) {
   await page.route('**/api/bootstrap', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Local test deployment is not configured.' }) }));
   await page.goto(`/#${module}`);
@@ -12,6 +14,8 @@ test('shared tasks support assignment, editing, completion and reversible deleti
   await openDemo(page, 'tasks');
   await page.getByRole('button', { name: 'Add task', exact: true }).click();
   const dialog = page.getByRole('dialog');
+  // The first marked field takes focus, not the dialog's close button.
+  await expect(dialog.getByLabel('What needs doing?')).toBeFocused();
   await dialog.getByLabel('What needs doing?').fill('Collect our library books');
   await dialog.getByLabel("Who's on it?").selectOption('sam');
   await dialog.getByLabel('Due date').fill('2030-01-15');
@@ -28,6 +32,8 @@ test('shared tasks support assignment, editing, completion and reversible deleti
   task = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Collect the books and return a novel' }) });
   await task.getByRole('button', { name: 'Complete task: Collect the books and return a novel' }).click();
   await expect(task).toHaveCount(0);
+  // The completed row left the list; keyboard focus must not fall back to the start of the page.
+  await focusIsOnPage(page);
   await page.getByRole('button', { name: /^Completed/ }).click();
   await expect(task).toBeVisible();
   await task.getByRole('button', { name: 'Delete Collect the books and return a novel' }).click();
@@ -36,6 +42,26 @@ test('shared tasks support assignment, editing, completion and reversible deleti
   await task.getByRole('button', { name: 'Delete Collect the books and return a novel' }).click();
   await dialog.getByRole('button', { name: 'Delete item' }).click();
   await expect(task).toHaveCount(0);
+  await focusIsOnPage(page);
+});
+
+test('today’s notes obey the search, and each note’s buttons say which note they act on', async ({ page }) => {
+  await openDemo(page, 'notes');
+  for (const text of ['Fresh bread from the corner bakery.', 'Dentist at four on Thursday.']) {
+    await page.getByRole('button', { name: 'Write a note', exact: true }).click();
+    await page.getByRole('dialog').getByLabel('Your note').fill(text);
+    await page.getByRole('dialog').getByRole('button', { name: 'Save note' }).click();
+  }
+  const bread = page.locator('article').filter({ hasText: 'Fresh bread from the corner bakery.' });
+  const dentist = page.locator('article').filter({ hasText: 'Dentist at four on Thursday.' });
+  await expect(bread.getByRole('button', { name: /^Edit note from .*Fresh bread/ })).toBeVisible();
+  await expect(dentist.getByRole('button', { name: /^Delete note from .*Dentist/ })).toBeVisible();
+  await page.getByLabel('Search notes').fill('bread');
+  await expect(bread).toBeVisible();
+  await expect(dentist).toHaveCount(0);
+  await page.getByLabel('Search notes').fill('zebra');
+  await expect(bread).toHaveCount(0);
+  await expect(page.getByText('No notes found')).toBeVisible();
 });
 
 test('dated notes remain searchable and modal cancellation leaves the original intact', async ({ page }) => {
@@ -48,7 +74,7 @@ test('dated notes remain searchable and modal cancellation leaves the original i
   const note = page.locator('article').filter({ hasText: 'Remember our lovely afternoon by the lake.' });
   await expect(note).toBeVisible();
   await expect(page.getByText('Fri, June 5, 2020', { exact: true })).toBeVisible();
-  await page.getByLabel('Search note history').fill('unmatched-search-term');
+  await page.getByLabel('Search notes').fill('unmatched-search-term');
   await expect(note).toHaveCount(0);
   await page.getByRole('button', { name: 'Clear search' }).click();
   await note.getByRole('button', { name: 'Edit note' }).click();

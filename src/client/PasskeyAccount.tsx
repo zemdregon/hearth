@@ -48,7 +48,18 @@ export function PasskeySignIn() {
   </div>;
 }
 
-type Credential = { id: string; name: string; createdAt: number; lastUsedAt: number | null };
+type Credential = { id: string; name: string; createdAt: number; lastUsedAt: number | null; current?: boolean };
+const memberColors = ['#38634A', '#A96743', '#557461', '#5B6FA6', '#9A5B8C', '#8A6D2F', '#4F7F8C', '#A4524F'];
+/** A fresh invitee gets a colour no current member already wears, so avatars stay distinguishable. */
+function nextMemberColor(members: { color: string }[]) {
+  const used = new Set(members.map(member => member.color.toLowerCase()));
+  return memberColors.find(color => !used.has(color.toLowerCase())) ?? memberColors[members.length % memberColors.length];
+}
+function credentialLabel(credential: Credential) {
+  const added = new Date(credential.createdAt * 1000);
+  const when = Number.isNaN(added.valueOf()) ? '' : ` (added ${added.toLocaleString()})`;
+  return `${credential.name || 'Unnamed passkey'}${when}`;
+}
 type Invitation = { token: string; expiresAt: number; memberId: string };
 type MemberAction = { member: InternalMember; kind: 'recover' | 'suspend' | 'revoke' };
 function displayDate(value: number | null) {
@@ -120,7 +131,7 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
   }
   async function invite() {
     const memberId = crypto.randomUUID();
-    const result = await accountRequest<{token:string;expiresAt:number}>('/api/auth/members',{id:memberId,name:inviteName.trim(),role:inviteRole,color:'#557461'});
+    const result = await accountRequest<{token:string;expiresAt:number}>('/api/auth/members',{id:memberId,name:inviteName.trim(),role:inviteRole,color:nextMemberColor(members)});
     if (!alive.current) return;
     setInvitation({...result,memberId});setInviteName('');setInviteRole('member');await load();
   }
@@ -147,8 +158,8 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
     {notice && !invitation && <p role="status">{notice}</p>}
     {!loaded && <Button variant="secondary" disabled={authBusy} onClick={()=>void perform(load)}>{authBusy ? 'Loading account…' : 'Reload account'}</Button>}
     {credentials.map(credential=><div className="card stack" style={{padding:'1rem'}} key={credential.id}>
-      <strong>{credential.name || 'Unnamed passkey'}</strong><span className="field-hint">Added {displayDate(credential.createdAt)} · Last used {displayDate(credential.lastUsedAt)}</span>
-      <Button variant="ghost" size="sm" disabled={authBusy || credentials.length < 2} onClick={()=>setRemove(credential)}>Remove {credential.name || 'passkey'}</Button>
+      <strong>{credential.name || 'Unnamed passkey'}{credential.current ? ' · Used to sign in here' : ''}</strong><span className="field-hint">Added {displayDate(credential.createdAt)} · Last used {displayDate(credential.lastUsedAt)}</span>
+      <Button variant="ghost" size="sm" disabled={authBusy || credentials.length < 2} aria-label={`Remove ${credentialLabel(credential)}`} onClick={()=>setRemove(credential)}>Remove{credential.name ? ` ${credential.name}` : ' passkey'}</Button>
     </div>)}
     {loaded && credentials.length < 2 && <p className="field-hint">Keep at least one passkey. Add a backup before removing your only passkey.</p>}
     <form className="stack" onSubmit={event=>{event.preventDefault();void perform(addPasskey);}}>
@@ -188,7 +199,7 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
     </Modal>
     <Modal open={!!remove} onClose={()=>{if(!authBusy)setRemove(null);}} title="Remove this passkey?">
       {error && <p className="field-error" role="alert">{error}</p>}
-      <p>You will need another registered passkey to sign in. Removing the passkey used for this session may sign you out.</p>
+      <p>You will need another registered passkey to sign in.{remove?.current ? ' This is the passkey you used to sign in on this device, so removing it signs you out here.' : ' Your current session keeps working.'}</p>
       <Button busy={authBusy} variant="danger" onClick={()=>void perform(async()=>{if(!remove)return;await accountRequest('/api/auth/credentials/revoke',{id:remove.id});if(!alive.current)return;setRemove(null);setNotice('Passkey removed.');await load();})}>Verify and remove passkey</Button>
     </Modal>
     <Modal open={revokeSessions} onClose={()=>{if(!authBusy)setRevokeSessions(false);}} title="Sign out all devices?">

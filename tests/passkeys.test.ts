@@ -136,7 +136,7 @@ describe('real WebAuthn passkey registration, assertions and sessions', () => {
     await login(browser, key, handle);
     expect(browser.cookies.get('__Host-hearth_session')).not.toBe(old);
     expect(sqlite.prepare('SELECT revoked_at FROM auth_sessions WHERE token_hash=?').get(b64(digest(old)))!.revoked_at).toBe(timestamp);
-    expect((await (await browser.request('/credentials')).json() as { credentials: unknown }).credentials).toEqual([{ id: key.id, name: 'My device', createdAt: timestamp, lastUsedAt: timestamp }]);
+    expect((await (await browser.request('/credentials')).json() as { credentials: unknown }).credentials).toEqual([{ id: key.id, name: 'My device', createdAt: timestamp, lastUsedAt: timestamp, current: true }]);
     expect(sqlite.prepare('SELECT * FROM auth_transaction_guards').all()).toEqual([]);
   });
   it.each([

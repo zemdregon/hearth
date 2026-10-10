@@ -321,8 +321,9 @@ passkeyRoutes.post('/sessions/revoke', async c => {
 });
 passkeyRoutes.get('/credentials', async c => {
   const session = await sessionFor(c.req.raw, c.env);
-  const credentials = (await stmt(c.env.DB, 'SELECT id,name,created_at AS createdAt,last_used_at AS lastUsedAt FROM auth_credentials WHERE member_id=? AND revoked_at IS NULL ORDER BY created_at,id', session.id).all()).results;
-  return c.json({ credentials });
+  const rows = (await stmt(c.env.DB, 'SELECT id,name,created_at AS createdAt,last_used_at AS lastUsedAt FROM auth_credentials WHERE member_id=? AND revoked_at IS NULL ORDER BY created_at,id', session.id).all<{ id: string; name: string; createdAt: number; lastUsedAt: number | null }>()).results;
+  // `current` marks the passkey that opened this session, so a list of identically named keys stays distinguishable.
+  return c.json({ credentials: rows.map(row => ({ ...row, current: row.id === session.credential_id })) });
 });
 passkeyRoutes.post('/credentials/revoke', async c => {
   const { id } = await body(c, z.object({ id: credentialId }).strict());

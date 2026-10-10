@@ -184,12 +184,44 @@ describe('persistent records, validation, and optimistic concurrency', () => {
 
   it('keeps member and deployment import quotas in separate namespaces', async () => {
     setMembers([{ ...members[0], id: 'family' }, members[1]]);
+    const configuration = { AI: { run: async () => ({ response: 'not a recipe' }) } as unknown as Ai };
+    const body = { mode: 'text', value: '1 cup rice. Boil until soft.' };
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const response = await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: '1 cup rice. Boil until soft.' } });
+      const response = await request('/api/recipes/import', { method: 'POST', body, configuration });
       expect(response.status).not.toBe(429);
     }
-    expect((await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: '1 cup rice. Boil until soft.' } })).status).toBe(429);
+    expect((await request('/api/recipes/import', { method: 'POST', body, configuration })).status).toBe(429);
     expect((await env.DB.prepare("SELECT count FROM rate_limits WHERE key = 'deployment:imports'").first<{ count: number }>())?.count).toBe(10);
+  });
+
+  it('spends no import quota on requests that can never run', async () => {
+    const configuration = { AI: { run: async () => ({ response: 'not a recipe' }) } as unknown as Ai };
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      for (const value of ['not a url', 'http://example.com/soup', 'https://localhost/soup', 'https://user:pw@example.com/soup']) {
+        expect((await request('/api/recipes/import', { method: 'POST', body: { mode: 'url', value }, configuration })).status).toBe(400);
+      }
+      expect((await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: 'x'.repeat(24_001) }, configuration })).status).toBe(413);
+      // Without the Workers AI binding, text and image imports fail before spending quota.
+      expect((await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: 'Soup' } })).status).toBe(503);
+    }
+    expect(await env.DB.prepare("SELECT count FROM rate_limits WHERE key LIKE '%imports'").first()).toBeNull();
+    // The quota is still whole for a real attempt.
+    expect((await request('/api/recipes/import', { method: 'POST', body: { mode: 'text', value: '1 cup rice. Boil.' }, configuration })).status).toBe(422);
+    expect((await env.DB.prepare("SELECT count FROM rate_limits WHERE key = 'deployment:imports'").first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it('lets a task keep, complete and rename with an assignee who has since been suspended', async () => {
+    const created = await create('task', { title: 'Walk the dog', done: false, assigneeId: 'sam' }) as FamilyRecord<'task'>;
+    // Suspend Sam in the roster; Alex remains the only active member.
+    setMembers([members[0]]);
+    const done = await request(`/api/records/${created.id}`, { method: 'PATCH', body: { data: { ...created.data, done: true }, version: created.version } });
+    expect(done.status, await done.clone().text()).toBe(200);
+    const renamed = await request(`/api/records/${created.id}`, { method: 'PATCH', body: { data: { ...created.data, title: 'Walk the dog twice', done: true }, version: 2 } });
+    expect(renamed.status).toBe(200);
+    // Newly choosing an unavailable member is still refused, for new and existing tasks alike.
+    expect((await request('/api/records', { method: 'POST', body: { kind: 'task', data: { title: 'New', done: false, assigneeId: 'sam' } } })).status).toBe(400);
+    const other = await create('task', { title: 'Other', done: false }) as FamilyRecord<'task'>;
+    expect((await request(`/api/records/${other.id}`, { method: 'PATCH', body: { data: { ...other.data, assigneeId: 'sam' }, version: 1 } })).status).toBe(400);
   });
 
   it('enforces the aggregate byte budget atomically and releases capacity on deletion', async () => {

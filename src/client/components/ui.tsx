@@ -35,6 +35,8 @@ export function Modal({ open, onClose, title, description, children }: { open: b
     const element = dialog.current;
     const previous = document.activeElement as HTMLElement | null;
     element.showModal();
+    // React's autoFocus runs before the dialog is open and is ignored; honour the first marked field instead.
+    element.querySelector<HTMLElement>('[data-autofocus]')?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { element.close(); document.body.style.overflow = previousOverflow; previous?.focus(); };

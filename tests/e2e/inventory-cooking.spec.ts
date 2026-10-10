@@ -333,6 +333,16 @@ test.describe('Cook this: review and confirm', () => {
     await expect(confirm(page)).toHaveAccessibleDescription(/no recorded stock to take from/);
   });
 
+  test('an ingredient with no stock and no suggested amount starts unticked so the rest can be confirmed', async ({ page }) => {
+    await mock(page, { preview: [{ json: proposal({ lines: [flourLine(), { ...milkLine(), allocations: [] }], unmapped: [], excluded: [] }) }] });
+    await openRecipe(page);
+    await checkPantry(page);
+    await panel(page).getByRole('button', { name: 'Cook this' }).click();
+    await expect(line(page, 'Plain flour').getByRole('checkbox')).toBeChecked();
+    await expect(line(page, 'Whole milk').getByRole('checkbox')).not.toBeChecked();
+    await expect(confirm(page)).toBeEnabled();
+  });
+
   test('with no matched ingredients there is nothing to take out of stock', async ({ page }) => {
     await mock(page, { preview: [{ json: proposal({ lines: [], unmapped: [{ index: 0, name: 'plain flour' }], excluded: [] }) }] });
     await openRecipe(page);

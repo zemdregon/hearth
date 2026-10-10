@@ -122,7 +122,7 @@ export function Streaks() {
     <Modal open={adding} onClose={closeAdding} title="One small habit" description="Pick a routine you want to make a little more room for.">
       <form className="stack" onSubmit={event => void submitHabit(event)}>
         <fieldset className="wellness-form-fields stack" disabled={busy}>
-        <label className="field">Habit name<input className="input" autoFocus required maxLength={120} value={title} onChange={event => setTitle(event.target.value)} placeholder="Read a few pages" /></label>
+        <label className="field">Habit name<input className="input" data-autofocus required maxLength={120} value={title} onChange={event => setTitle(event.target.value)} placeholder="Read a few pages" /></label>
         <fieldset className="wellness-fieldset"><legend>Choose a color</legend><div className="habit-colors">{habitColors.map((value, index) => <label key={value} className="habit-color-choice" style={{ backgroundColor: value }}><input type="radio" name="habit-color" value={value} checked={color === value} onChange={() => setColor(value)} /><span className="sr-only">{['Forest', 'Terracotta', 'Lavender', 'Ochre', 'Blue'][index]}</span>{color === value && <Check size={20} aria-hidden="true" />}</label>)}</div></fieldset>
         <label className="field">Already doing this? <span className="muted">(optional)</span>
           <input className="input" type="date" name="habit-start" value={startDate} min={earliestStart} max={yesterday} onChange={event => setStartDate(event.target.value)} aria-describedby={backfillCount > LARGE_BACKFILL_DAYS ? 'habit-start-help habit-start-records' : 'habit-start-help'} aria-invalid={Boolean(startProblem)} />

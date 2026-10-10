@@ -41,3 +41,6 @@
 .family-capacity>p+p{margin-top:10px}
 @media(max-width:600px){.capacity-notice{padding:12px 18px;font-size:12px}.family-capacity{padding:21px}.family-capacity-heading{align-items:flex-start}}
 @media print{.capacity-notice,.family-capacity{display:none!important}}
+
+/* Long confirmation labels (for example "Verify passkey and sign out all devices") must wrap, not clip, in a 320px dialog. */
+@media (max-width:480px){.modal .button{white-space:normal;text-align:center}}

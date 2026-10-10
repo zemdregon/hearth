@@ -10,7 +10,7 @@ import { ApiError } from './env';
 import type { Env, Variables } from './env';
 import { consumeLimit, createHabitWithHistory, createRecord, deleteRecord, getRecord, readFamilySnapshot, requireModule, requireOwnership, updateRecord } from './db';
 import { createSchema, deleteSchema, habitCreateSchema, importSchema, moduleSchema, parseInput, readJson, updateSchema, validateData } from './validation';
-import { importRecipe, RecipeImportError } from './recipe-import';
+import { importRecipe, preflightImport, RecipeImportError } from './recipe-import';
 import { matchesSnapshot, snapshotTag } from './snapshot';
 import { passkeyRoutes } from './passkeys';
 import { inventoryEnabled, inventoryRoutes, readConsumptions, readInventoryState, readLedger } from './inventory';
@@ -64,11 +64,13 @@ app.get('/api/bootstrap', async c => {
   return c.body(json, 200, { 'Content-Type': 'application/json; charset=UTF-8' });
 });
 
-async function validateRelations(db: D1Database, kind: RecordKind, data: RecordDataMap[RecordKind], user: User, members: User[], timezone: string): Promise<void> {
+async function validateRelations(db: D1Database, kind: RecordKind, data: RecordDataMap[RecordKind], user: User, members: User[], timezone: string, previous?: RecordDataMap[RecordKind]): Promise<void> {
   if (['mood', 'habitLog', 'answer'].includes(kind) && (data as RecordDataMap['mood']).date > todayInTimezone(timezone)) throw new ApiError(400, 'Choose today or a past date in your family timezone.');
   if (kind === 'task') {
     const assignee = (data as RecordDataMap['task']).assigneeId;
-    if (assignee && !members.some(member => member.id === assignee)) throw new ApiError(400, 'Choose a member of this family.');
+    // An unchanged assignee who has since been suspended must not block completing or renaming the task.
+    const unchanged = assignee === (previous as RecordDataMap['task'] | undefined)?.assigneeId;
+    if (assignee && !unchanged && !members.some(member => member.id === assignee)) throw new ApiError(400, 'Choose a member of this family.');
   }
   if (kind === 'habit' && (data as RecordDataMap['habit']).userId !== user.id) throw new ApiError(403, 'Habits can only be created and changed by their owner.');
   if (kind === 'habitLog') {
@@ -132,7 +134,7 @@ app.patch('/api/records/:id', async c => {
       throw new ApiError(409, 'Only answers for the current question pair can be shared with family.');
     }
   }
-  await validateRelations(c.env.DB, record.kind, data, c.get('user'), c.get('family').members, c.get('family').timezone);
+  await validateRelations(c.env.DB, record.kind, data, c.get('user'), c.get('family').members, c.get('family').timezone, record.data);
   return c.json(await updateRecord(c.env.DB, record, data, version));
 });
 
@@ -156,9 +158,11 @@ app.patch('/api/modules/:id', async c => {
 
 app.post('/api/recipes/import', async c => {
   await requireModule(c.env.DB, 'recipes');
+  const request = parseInput(importSchema, await readJson(c.req.raw, 6 * 1024 * 1024));
+  // Only requests that can actually run spend quota; a mistyped link must not lock the member out.
+  preflightImport(request, c.env);
   await consumeLimit(c.env.DB, `member:${c.get('user').id}:imports`, 10, 3600);
   await consumeLimit(c.env.DB, 'deployment:imports', 40, 86400);
-  const request = parseInput(importSchema, await readJson(c.req.raw, 6 * 1024 * 1024));
   const result = await importRecipe(request, c.env);
   return c.json(result);
 });
