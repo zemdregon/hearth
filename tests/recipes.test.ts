@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatQuantity, ingredientAmount, parseIngredientLine, parseQuantity, scaleIngredient } from '../src/shared/recipes';
+import { formatQuantity, ingredientAmount, ingredientUnit, parseIngredientLine, parseQuantity, scaleIngredient } from '../src/shared/recipes';
 
 describe('recipe amount parsing', () => {
   it.each([
@@ -54,5 +54,23 @@ describe('serving scaling', () => {
     expect(formatQuantity(1.75)).toBe('1 3/4');
     expect(formatQuantity(.001)).toBe('0.001');
     expect(formatQuantity(0)).toBe('');
+  });
+});
+
+describe('ingredient unit agreement', () => {
+  const flour = (quantity: number | null, unit = 'cups', quantityMax?: number) => ({ name: 'flour', quantity, unit, ...(quantityMax !== undefined ? { quantityMax } : {}) });
+  it('is singular up to one and plural above it, whichever way the recipe was written', () => {
+    expect(ingredientUnit(flour(1, 'cups'))).toBe('cup');
+    expect(ingredientUnit(flour(1, 'cup'), 0.375)).toBe('cup');
+    expect(ingredientUnit(flour(1, 'cup'), 1.5)).toBe('cups');
+    expect(ingredientUnit(flour(2, 'cup'), 0.5)).toBe('cup');
+    expect(ingredientUnit(flour(1, 'pinch'), 2)).toBe('pinches');
+    expect(ingredientUnit(flour(2, 'Cups'), 0.5)).toBe('Cup');
+  });
+  it('uses the larger end of a range, and leaves abbreviations, unknown words and unquantified lines alone', () => {
+    expect(ingredientUnit(flour(0.5, 'cup', 2))).toBe('cups');
+    expect(ingredientUnit(flour(3, 'tbsp'), 0.1)).toBe('tbsp');
+    expect(ingredientUnit(flour(3, 'handful'), 0.1)).toBe('handful');
+    expect(ingredientUnit(flour(null, 'cups'))).toBe('cups');
   });
 });

@@ -25,13 +25,13 @@ test('authentication gate distinguishes local demo and real family sign-in', asy
 
 test('module pause hides its UI, preserves records, and exports only visible demo data', async ({ page }) => {
   await openDemo(page, 'settings');
-  await page.getByRole('switch', { name: 'Disable Recipe book' }).click();
-  await expect(page.getByRole('switch', { name: 'Enable Recipe book' })).not.toBeChecked();
+  await page.getByRole('switch', { name: 'Recipe book', exact: true }).click();
+  await expect(page.getByRole('switch', { name: 'Recipe book', exact: true })).not.toBeChecked();
   await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Recipe book' })).toHaveCount(0);
   await page.goto('/#recipes');
   await expect(page.getByRole('heading', { name: 'A little room to pause' })).toBeVisible();
   await page.getByRole('button', { name: 'Make it your own', exact: true }).click();
-  await page.getByRole('switch', { name: 'Enable Recipe book' }).click();
+  await page.getByRole('switch', { name: 'Recipe book', exact: true }).click();
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Recipe book' }).click();
   await expect(page.getByRole('heading', { name: 'Sunday lemon & herb chicken', exact: true })).toBeVisible();
   await page.goto('/#settings');

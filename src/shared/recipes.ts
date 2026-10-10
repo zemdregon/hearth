@@ -79,6 +79,26 @@ export function formatQuantity(value: number | null | undefined): string {
   return new Intl.NumberFormat('en', { maximumSignificantDigits: 5, useGrouping: false }).format(value);
 }
 
+// Written-out units whose singular and plural differ only by the ending ("cup"/"cups", "pinch"/"pinches").
+const unitForms = new Map<string, [string, string]>();
+for (const [singular, plural] of [['teaspoon', 'teaspoons'], ['tablespoon', 'tablespoons'], ['cup', 'cups'], ['gram', 'grams'], ['kilogram', 'kilograms'],
+  ['milliliter', 'milliliters'], ['millilitre', 'millilitres'], ['liter', 'liters'], ['litre', 'litres'], ['ounce', 'ounces'], ['pound', 'pounds'],
+  ['pinch', 'pinches'], ['dash', 'dashes'], ['clove', 'cloves'], ['can', 'cans'], ['tin', 'tins'], ['package', 'packages'], ['packet', 'packets'],
+  ['bunch', 'bunches'], ['slice', 'slices'], ['sprig', 'sprigs'], ['piece', 'pieces']] as [string, string][]) {
+  unitForms.set(singular, [singular, plural]);
+  unitForms.set(plural, [singular, plural]);
+}
+
+/** The unit as it reads for the scaled amount: "1/2 cup" and "1 cup", but "1 1/2 cups" and "2 cups". Abbreviations are left alone. */
+export function ingredientUnit(ingredient: Ingredient, multiplier = 1): string {
+  const forms = unitForms.get(ingredient.unit.trim().toLowerCase());
+  if (!forms || ingredient.quantity === null) return ingredient.unit;
+  const scaled = scaleIngredient(ingredient, multiplier);
+  const largest = Math.max(scaled.quantity ?? 0, scaled.quantityMax ?? 0);
+  const word = largest <= 1 ? forms[0] : forms[1];
+  return ingredient.unit[0] === ingredient.unit[0].toUpperCase() && ingredient.unit[0] !== ingredient.unit[0].toLowerCase() ? word[0].toUpperCase() + word.slice(1) : word;
+}
+
 export function ingredientAmount(ingredient: Ingredient, multiplier = 1): string {
   const scaled = scaleIngredient(ingredient, multiplier);
   if (scaled.quantity === null) return '';

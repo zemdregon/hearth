@@ -51,7 +51,7 @@ test.describe('Inventory on the real Worker and local D1', () => {
 
   test('is off by default, hidden from navigation, and an administrator can switch it on', async ({ page }) => {
     await page.goto('/#settings');
-    const toggle = page.getByRole('switch', { name: 'Enable Inventory' });
+    const toggle = page.getByRole('switch', { name: 'Inventory', exact: true });
     await expect(toggle).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await expect(page.getByRole('heading', { name: 'Inventory', level: 2 })).toBeVisible();
@@ -59,8 +59,8 @@ test.describe('Inventory on the real Worker and local D1', () => {
     await page.goto('/#inventory');
     await expect(page.getByRole('heading', { name: 'A little room to pause' })).toBeVisible();
     await page.getByRole('button', { name: 'Make it your own', exact: true }).first().click();
-    await page.getByRole('switch', { name: 'Enable Inventory' }).click();
-    await expect(page.getByRole('switch', { name: 'Disable Inventory' })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('switch', { name: 'Inventory', exact: true }).click();
+    await expect(page.getByRole('switch', { name: 'Inventory', exact: true })).toHaveAttribute('aria-checked', 'true');
     await mainNav(page).getByRole('link', { name: 'Inventory' }).click();
     await expect(page.getByRole('heading', { name: 'Inventory', level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Nothing on the shelves yet' })).toBeVisible();
@@ -503,7 +503,7 @@ test.describe('Inventory page with fixed data', () => {
     await page.route('**/api/bootstrap', route => route.fulfill({ status: 503, json: { error: 'Local test deployment is not configured.' } }));
     await page.goto('/#settings');
     await page.getByRole('button', { name: 'Explore the local demo' }).click();
-    const toggle = page.getByRole('switch', { name: 'Enable Inventory' });
+    const toggle = page.getByRole('switch', { name: 'Inventory', exact: true });
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await expect(mainNav(page).getByRole('link', { name: 'Inventory' })).toHaveCount(0);
     await toggle.click();

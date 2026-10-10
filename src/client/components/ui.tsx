@@ -21,7 +21,7 @@ export function Field({ label, children, hint, error, id }: { label: string; chi
 }
 
 export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: string; description?: string; action?: ReactNode }) {
-  return <div className="empty-state"><div className="empty-icon" aria-hidden="true">{icon || <Sprout size={25} strokeWidth={1.5} />}</div><h3>{title}</h3>{description && <p>{description}</p>}{action && <div>{action}</div>}</div>;
+  return <div className="empty-state"><div className="empty-icon" aria-hidden="true">{icon || <Sprout size={25} strokeWidth={1.5} />}</div><h2>{title}</h2>{description && <p>{description}</p>}{action && <div>{action}</div>}</div>;
 }
 
 export function Modal({ open, onClose, title, description, children }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode }) {

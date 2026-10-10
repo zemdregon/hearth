@@ -88,6 +88,13 @@ test('a couple reveals privately in a larger household and explicitly releases p
     return body.records.filter(record => record.kind === 'answer');
   });
   expect(received.map((record: {ownerId: string}) => record.ownerId)).toEqual(['alex']);
+  // The dashboard must not invite an unpaired member to a conversation "just for the two of you".
+  await page.evaluate(() => { window.location.hash = ''; });
+  await expect(page.getByText('Welcome home, Lee.')).toBeVisible();
+  await expect(page.getByText('just for the two of you')).toHaveCount(0);
+  await home.member('alex', '');
+  await expect(page.getByText('just for the two of you')).toBeVisible();
+  await home.member('lee');
   await page.evaluate(() => { window.location.hash = 'questions'; });
   await expect(page.getByRole('heading', { name: 'A space for two' })).toBeVisible();
   await expect(page.locator('.question-history')).toHaveCount(0);

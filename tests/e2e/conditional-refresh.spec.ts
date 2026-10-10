@@ -182,8 +182,10 @@ test('module enable and disable each invalidate the complete snapshot', async ({
   });
   await page.goto('/#settings');
   for (const action of ['Enable', 'Disable']) {
-    await page.getByRole('switch', { name: `${action} Recipe book`, exact: true }).click();
-    await expect(page.getByRole('switch', { name: `${action === 'Enable' ? 'Disable' : 'Enable'} Recipe book`, exact: true })).toBeEnabled();
+    const recipes = page.getByRole('switch', { name: 'Recipe book', exact: true });
+    await recipes.click();
+    await expect(recipes).toHaveAttribute('aria-checked', action === 'Enable' ? 'true' : 'false');
+    await expect(recipes).toBeEnabled();
     expect(validators.at(-1)).toBeUndefined();
     await refresh(page);
     expect(validators.at(-1)).toBe(firstTag);

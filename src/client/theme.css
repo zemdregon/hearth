@@ -51,7 +51,7 @@
   html[data-theme="dark"] :is(.icon-button, .recipe-icon-button) { color: var(--night-muted); }
   html[data-theme="dark"] :is(.icon-button:hover, .recipe-icon-button:hover) { background: var(--night-hover); color: var(--green); }
   html[data-theme="dark"] :is(.muted, .eyebrow, .field-hint, .section-description, .empty-state, .empty-state p) { color: var(--night-muted); }
-  html[data-theme="dark"] :is(.field > label, .field-wrap > span, .empty-state h3) { color: var(--night-text); }
+  html[data-theme="dark"] :is(.field > label, .field-wrap > span, .empty-state h2) { color: var(--night-text); }
   html[data-theme="dark"] .input { background: var(--night-input); color: var(--night-text); border-color: var(--night-border); }
   html[data-theme="dark"] .input::placeholder { color: var(--night-soft); }
   html[data-theme="dark"] .input:hover { border-color: var(--green); }

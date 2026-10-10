@@ -132,8 +132,8 @@ test.describe('Pantry check on a recipe', () => {
     await page.route('**/api/bootstrap', route => route.fulfill({ status: 503, json: { error: 'Local test deployment is not configured.' } }));
     await page.goto('/#settings');
     await page.getByRole('button', { name: 'Explore the local demo' }).click();
-    await page.getByRole('switch', { name: 'Enable Inventory' }).click();
-    await expect(page.getByRole('switch', { name: 'Disable Inventory' })).toBeVisible();
+    await page.getByRole('switch', { name: 'Inventory', exact: true }).click();
+    await expect(page.getByRole('switch', { name: 'Inventory', exact: true })).toBeVisible();
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: /Recipe/ }).click();
     await expect(page.getByRole('heading', { name: 'A little taste of home.' })).toBeVisible();
     await page.getByRole('button', { name: 'View Slow morning pancakes', exact: true }).click();
