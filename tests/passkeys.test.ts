@@ -552,6 +552,15 @@ describe('member rename and recolour', () => {
     expect((await admin.browser.request('/members/alex/update', { color: '#A96743' })).status).toBe(200);
     expect(sqlite.prepare("SELECT name,color FROM auth_members WHERE id='alex'").get()).toEqual({ name: 'Alexander', color: '#A96743' });
   });
+  it('allows an administrator to rename and recolour a suspended member', async () => {
+    const admin = await active();
+    member('sam', 'member', 'suspended');
+    const result = await admin.browser.request('/members/sam/update', { name: 'Samantha', color: '#557461' });
+    expect(result.status, await result.clone().text()).toBe(200);
+    // Status remains suspended; only name and colour change.
+    expect(sqlite.prepare("SELECT name,color,status FROM auth_members WHERE id='sam'").get()).toEqual({ name: 'Samantha', color: '#557461', status: 'suspended' });
+    expect(sqlite.prepare("SELECT event FROM auth_audit WHERE target_id='sam' AND event='member.updated'").all()).toHaveLength(1);
+  });
 });
 
 describe('credential rename', () => {
@@ -578,6 +587,21 @@ describe('credential rename', () => {
   it('rejects an unknown or revoked credential id', async () => {
     const { browser } = await active();
     expect((await browser.request('/credentials/rename', { id: 'nonexistent123456789012345678901234567890123', name: 'Ghost' })).status).toBe(409);
+  });
+  it('rejects renaming an own revoked credential', async () => {
+    const { browser, key } = await active();
+    // Register a second credential so the session stays valid after revoking the first.
+    const extraKey = authenticator();
+    const ceremony = await options(browser, '/register/options');
+    expect((await browser.request('/register/verify', { ceremonyId: ceremony.ceremonyId, response: extraKey.register(ceremony.options.challenge) })).status).toBe(200);
+    const extraId = sqlite.prepare('SELECT id FROM auth_credentials WHERE id<>?').get(key.id)!.id as string;
+    // Revoke the extra credential via the API while the session (tied to key.id) stays live.
+    expect((await browser.request('/credentials/revoke', { id: extraId })).status).toBe(200);
+    expect(sqlite.prepare('SELECT revoked_at FROM auth_credentials WHERE id=?').get(extraId)!.revoked_at).not.toBeNull();
+    // Attempting to rename the now-revoked credential must be rejected.
+    const rename = await browser.request('/credentials/rename', { id: extraId, name: 'Should Not Stick' });
+    expect(rename.status).toBe(409);
+    expect(sqlite.prepare('SELECT name FROM auth_credentials WHERE id=?').get(extraId)!.name).toBe('Passkey');
   });
 });
 
