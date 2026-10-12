@@ -382,6 +382,24 @@ async function changeMember(c: Ctx, recovery: boolean) {
 }
 passkeyRoutes.post('/members/:id/recover', c => changeMember(c, true));
 passkeyRoutes.post('/members/:id/suspend', c => changeMember(c, false));
+passkeyRoutes.post('/members/:id/update', async c => {
+  const input = await body(c, z.object({ name: displayName.optional(), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() }).strict());
+  if (input.name === undefined && input.color === undefined) throw new ApiError(400, 'Provide a name or color to update.');
+  const parsed = memberId.safeParse(c.req.param('id'));
+  if (!parsed.success) throw new ApiError(400, 'The member is invalid.');
+  const target = parsed.data;
+  const session = await sessionFor(c.req.raw, c.env, true);
+  if (session.role !== 'admin' && session.id !== target) throw new ApiError(403, 'An administrator is required.');
+  const db = c.env.DB; const timestamp = now(); const check = random(); const exists = random();
+  const fields: string[] = [];
+  const values: (string | number | null)[] = [];
+  if (input.name !== undefined) { fields.push('name=?'); values.push(input.name); }
+  if (input.color !== undefined) { fields.push('color=?'); values.push(input.color); }
+  fields.push('updated_at=?'); values.push(timestamp);
+  values.push(target);
+  await atomic(db, [sessionGuard(db, check, session, timestamp), guard(db, exists, 'EXISTS (SELECT 1 FROM auth_members WHERE id=?)', [target]), stmt(db, `UPDATE auth_members SET ${fields.join(',')} WHERE id=?`, ...values), audit(db, session.id, target, 'member.updated', timestamp)], [check, exists]);
+  return c.json({ ok: true });
+});
 passkeyRoutes.post('/invitations/revoke', async c => {
   const { memberId: target } = await body(c, z.object({ memberId }).strict());
   const session = await sessionFor(c.req.raw, c.env, true, true);

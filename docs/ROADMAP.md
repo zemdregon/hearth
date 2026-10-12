@@ -46,6 +46,7 @@ These milestones began with the pre-transition implementation. The passkey repla
 - [x] Implement verified WebAuthn ceremonies, private enrollment, revocable sessions, backup passkeys and administrator/operator recovery
 - [x] Build passkey sign-in, enrollment and credential/member management; retain privacy and session-clearing behavior
 - [x] Replace Access/email runtime, deployment configuration and local authentication workflow together; verify rejection cases and local browser flows
+- [x] Allow administrators and members to rename and recolour themselves after invitation; `POST /api/auth/members/:id/update` with fresh passkey verification
 - [ ] Verify real phone/PWA passkeys, second-device enrollment and recovery before production cutover. **Blocked on a person with the physical devices:** it needs a human to register a passkey on their phone, install the PWA, enroll a second device and walk the recovery flow; the checklist is in [RELEASE_REVIEW.md](RELEASE_REVIEW.md#current-release-gates--2026-10-09). Everything that can be exercised without a device (virtual-authenticator browser flows, the restore/lock rehearsal, live anonymous boundaries) is verified.
 - [x] Publish the internal-passkey Worker at the permanent hostname and verify live anonymous-access boundaries and offline shell
 - [x] Complete initial administrator enrollment and observe a live passkey sign-in
@@ -54,6 +55,8 @@ These milestones began with the pre-transition implementation. The passkey repla
 - [x] Evaluate server pagination, archival and refresh payload reduction before lifting family data limits
 - [x] Rehearse isolated local D1 export/restore, reviewed authentication reset and fresh passkey recovery without restoring old access
 - [x] Validate remote D1 backup/Time Travel restore in an isolated account database (export-import equality, Time Travel restore and undo on a disposable database; see [restore notes](DEPLOYMENT.md#remote-restore-and-time-travel-observed-2026-10-09))
+
+Member rename and recolour, observed 2026-10-12: `POST /api/auth/members/:id/update` accepts `{ name?, color? }` (at least one required) with fresh passkey verification; administrators can update any member, a member can update themselves. Seven new tests in `tests/passkeys.test.ts` cover admin rename, admin recolor, self-rename, non-admin-targeting-other rejection, empty body rejection, missing member, and fresh-verification enforcement. The `Family membership` section in PasskeyAccount now shows a "Rename or recolour" button per member that opens a modal with a name input and eight-colour swatch picker. The preflight script guard now uses `realpathSync` to resolve symlinks before comparing `import.meta.url` (fixes macOS `/tmp` → `/private/tmp` false mismatch that caused the deployment test to silently skip its check). `npm run check` passes **740 tests**, TypeScript and the production build. No migration was needed; no live deployment was attempted.
 
 ## Standing practice (not a deliverable)
 - Continue independent user-flow discovery after each verified milestone; keep scope tied to this family's modular app. A fresh agent with no knowledge of the code exercises the changed flows as separate family members, findings are fixed with regression tests, and the evidence is recorded below. Last pass: 2026-10-10.

@@ -510,6 +510,50 @@ describe('fresh verification, administration and revocation races', () => {
   });
 });
 
+describe('member rename and recolour', () => {
+  it('allows an administrator to rename and recolour any member with fresh verification', async () => {
+    const admin = await active(); member('sam', 'member'); const token = grant('sam'); const samKey = authenticator(); const samBrowser = new Browser();
+    await enroll(samBrowser, samKey, token); await login(samBrowser, samKey, sqlite.prepare("SELECT user_handle FROM auth_members WHERE id='sam'").get()!.user_handle as string);
+    const result = await admin.browser.request('/members/sam/update', { name: 'Samira', color: '#5B6FA6' });
+    expect(result.status, await result.clone().text()).toBe(200);
+    expect(sqlite.prepare("SELECT name,color FROM auth_members WHERE id='sam'").get()).toEqual({ name: 'Samira', color: '#5B6FA6' });
+    expect(sqlite.prepare("SELECT event FROM auth_audit WHERE target_id='sam' AND event='member.updated'").all()).toHaveLength(1);
+    expect(sqlite.prepare('SELECT * FROM auth_transaction_guards').all()).toEqual([]);
+  });
+  it('allows a member to rename and recolour themselves', async () => {
+    const ordinary = await active('sam', 'member');
+    const result = await ordinary.browser.request('/members/sam/update', { name: 'Samira', color: '#5B6FA6' });
+    expect(result.status, await result.clone().text()).toBe(200);
+    expect(sqlite.prepare("SELECT name,color FROM auth_members WHERE id='sam'").get()).toEqual({ name: 'Samira', color: '#5B6FA6' });
+  });
+  it('rejects a non-administrator updating another member', async () => {
+    const ordinary = await active('sam', 'member'); member('alex', 'admin'); const token = grant('alex'); const adminKey = authenticator(); const adminBrowser = new Browser();
+    await enroll(adminBrowser, adminKey, token); await login(adminBrowser, adminKey, sqlite.prepare("SELECT user_handle FROM auth_members WHERE id='alex'").get()!.user_handle as string);
+    expect((await ordinary.browser.request('/members/alex/update', { name: 'Alexia' })).status).toBe(403);
+    expect(sqlite.prepare("SELECT name FROM auth_members WHERE id='alex'").get()!.name).toBe('alex');
+  });
+  it('requires at least one field to change', async () => {
+    const admin = await active();
+    expect((await admin.browser.request('/members/alex/update', {})).status).toBe(400);
+  });
+  it('rejects an unknown member', async () => {
+    const admin = await active();
+    expect((await admin.browser.request('/members/nobody/update', { name: 'Ghost' })).status).toBe(409);
+  });
+  it('requires fresh passkey verification', async () => {
+    const admin = await active();
+    sqlite.prepare('UPDATE auth_sessions SET reauthenticated_at=NULL').run();
+    expect((await admin.browser.request('/members/alex/update', { name: 'Alex New' })).status).toBe(403);
+  });
+  it('accepts name-only or color-only updates', async () => {
+    const admin = await active();
+    expect((await admin.browser.request('/members/alex/update', { name: 'Alexander' })).status).toBe(200);
+    expect(sqlite.prepare("SELECT name,color FROM auth_members WHERE id='alex'").get()).toEqual({ name: 'Alexander', color: '#38634A' });
+    expect((await admin.browser.request('/members/alex/update', { color: '#A96743' })).status).toBe(200);
+    expect(sqlite.prepare("SELECT name,color FROM auth_members WHERE id='alex'").get()).toEqual({ name: 'Alexander', color: '#A96743' });
+  });
+});
+
 describe('canonical deployment, CSRF and resource bounds', () => {
   it('adds browser bindings without rewriting sessions in an already-applied runtime database', () => {
     const legacy = new DatabaseSync(':memory:');

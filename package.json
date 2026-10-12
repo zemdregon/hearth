@@ -49,5 +49,11 @@
   },
   "overrides": {
     "sharp": "^0.35.5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true,
+    "workerd@1.20261006.1": true
   }
 }

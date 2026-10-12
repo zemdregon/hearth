@@ -61,7 +61,7 @@ function credentialLabel(credential: Credential) {
   return `${credential.name || 'Unnamed passkey'}${when}`;
 }
 type Invitation = { token: string; expiresAt: number; memberId: string };
-type MemberAction = { member: InternalMember; kind: 'recover' | 'suspend' | 'revoke' };
+type MemberAction = { member: InternalMember; kind: 'recover' | 'suspend' | 'revoke' | 'edit' };
 function displayDate(value: number | null) {
   if (!value) return 'Not used yet';
   const date = new Date(value * 1000);
@@ -90,6 +90,7 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
   const [inviteRole, setInviteRole] = useState<'member'|'admin'>('member');
   const [invitation, setInvitation] = useState<Invitation|null>(null);
   const [action, setAction] = useState<MemberAction|null>(null);
+  const [editDraft, setEditDraft] = useState({ name: '', color: '' });
   const [remove, setRemove] = useState<Credential|null>(null);
   const [revokeSessions, setRevokeSessions] = useState(false);
   const alive = useRef(true);
@@ -138,7 +139,15 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
   async function memberAction() {
     if (!action) return;
     const {member,kind} = action;
-    if (kind === 'recover') {
+    if (kind === 'edit') {
+      const update: { name?: string; color?: string } = {};
+      if (editDraft.name.trim() && editDraft.name.trim() !== member.name) update.name = editDraft.name.trim();
+      if (editDraft.color && editDraft.color !== member.color) update.color = editDraft.color;
+      if (!update.name && !update.color) { setAction(null); return; }
+      await accountRequest(`/api/auth/members/${encodeURIComponent(member.id)}/update`, update);
+      if (!alive.current) return;
+      setNotice('Member updated.');
+    } else if (kind === 'recover') {
       const result = await accountRequest<{token:string;expiresAt:number}>(`/api/auth/members/${encodeURIComponent(member.id)}/recover`,{});
       if (!alive.current) return;
       setInvitation({...result,memberId:member.id});setNotice('Old passkeys and sessions were revoked. Share the new enrollment link only after verifying this person’s identity.');
@@ -178,6 +187,7 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
       {members.map(member=><div className="card stack" style={{padding:'1rem'}} key={member.id}>
         <strong>{member.name}{member.id===user.id?' · You':''}</strong><span className="field-hint">{member.role==='admin'?'Administrator':'Family member'} · {member.status}</span>
         <div className="section-actions" style={{flexWrap:'wrap'}}>
+          <Button size="sm" variant="secondary" disabled={authBusy} onClick={()=>{setEditDraft({name:member.name,color:member.color});setAction({member,kind:'edit'});}}>Rename or recolour</Button>
           <Button size="sm" variant="secondary" disabled={authBusy || member.id===user.id} onClick={()=>setAction({member,kind:'recover'})}>{member.status==='pending'?'Replace enrollment invitation':member.status==='suspended'?'Restore with a new passkey':'Recover account'}</Button>
           <Button size="sm" variant="ghost" disabled={authBusy} onClick={()=>setAction({member,kind:'revoke'})}>Revoke invitations</Button>
           {member.status!=='suspended' && <Button size="sm" variant="danger" disabled={authBusy || member.id===user.id} onClick={()=>setAction({member,kind:'suspend'})}>Suspend membership</Button>}
@@ -192,9 +202,17 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
         <Button variant="secondary" onClick={()=>setInvitation(null)}>Done</Button>
       </div>
     </Modal>
-    <Modal open={!!action} onClose={()=>{if(!authBusy)setAction(null);}} title={action?.kind==='suspend'?'Suspend this membership?':action?.kind==='revoke'?'Revoke enrollment invitations?':'Authorize account recovery?'}>
+    <Modal open={!!action && action.kind==='edit'} onClose={()=>{if(!authBusy)setAction(null);}} title={`Rename or recolour ${action?.member.name ?? 'member'}`} description="Requires passkey verification. The new name and colour appear for everyone.">
       {error && <p className="field-error" role="alert">{error}</p>}
-      <p>{action?.kind==='recover'?`Verify ${action.member.name}’s identity before continuing. This revokes their old passkeys, sessions and invitations, then provides a new enrollment link for the same permanent account. Their saved records remain attached to that account.`:action?.kind==='suspend'?`Suspend ${action.member.name} and revoke their access. Their saved records are preserved.`:`Revoke every outstanding enrollment link for ${action?.member.name}. Existing passkeys remain usable.`}</p>
+      <div className="stack">
+        <Field label="Display name"><input className="input" value={editDraft.name} onChange={event=>setEditDraft({...editDraft,name:event.target.value})} maxLength={80} disabled={authBusy} autoComplete="off"/></Field>
+        <Field label="Colour"><div role="group" aria-label="Member colour" style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>{memberColors.map(color=><button key={color} type="button" aria-label={color} aria-pressed={editDraft.color===color} disabled={authBusy} onClick={()=>setEditDraft({...editDraft,color})} style={{width:'2rem',height:'2rem',borderRadius:'50%',backgroundColor:color,border:editDraft.color===color?'3px solid currentColor':'3px solid transparent',cursor:'pointer'}}/>)}</div></Field>
+        <Button busy={authBusy} onClick={()=>void perform(memberAction)} disabled={(!editDraft.name.trim() || editDraft.name.trim()===action?.member.name) && editDraft.color===action?.member.color}>Verify passkey and save</Button>
+      </div>
+    </Modal>
+    <Modal open={!!action && action.kind!=='edit'} onClose={()=>{if(!authBusy)setAction(null);}} title={action?.kind==='suspend'?'Suspend this membership?':action?.kind==='revoke'?'Revoke enrollment invitations?':'Authorize account recovery?'}>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <p>{action?.kind==='recover'?`Verify ${action.member.name}'s identity before continuing. This revokes their old passkeys, sessions and invitations, then provides a new enrollment link for the same permanent account. Their saved records remain attached to that account.`:action?.kind==='suspend'?`Suspend ${action.member.name} and revoke their access. Their saved records are preserved.`:`Revoke every outstanding enrollment link for ${action?.member.name}. Existing passkeys remain usable.`}</p>
       <Button busy={authBusy} onClick={()=>void perform(memberAction)}>{action?.kind==='recover'?'Identity verified — authorize recovery':action?.kind==='suspend'?'Verify passkey and suspend':'Verify passkey and revoke invitations'}</Button>
     </Modal>
     <Modal open={!!remove} onClose={()=>{if(!authBusy)setRemove(null);}} title="Remove this passkey?">
