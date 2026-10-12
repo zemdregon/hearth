@@ -91,6 +91,8 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
   const [invitation, setInvitation] = useState<Invitation|null>(null);
   const [action, setAction] = useState<MemberAction|null>(null);
   const [editDraft, setEditDraft] = useState({ name: '', color: '' });
+  const [rename, setRename] = useState<Credential|null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
   const [remove, setRemove] = useState<Credential|null>(null);
   const [revokeSessions, setRevokeSessions] = useState(false);
   const alive = useRef(true);
@@ -163,12 +165,15 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
   return <section className="card stack" aria-labelledby="passkey-account-heading" style={{padding:'1.5rem',marginTop:'1.5rem'}}>
     <div><h2 id="passkey-account-heading"><KeyRound size={21}/> Your passkeys & account</h2><p>Add a second passkey on another device or a hardware security key so you have a way back in. Changes require fresh passkey verification.</p></div>
     <Button variant="ghost" onClick={close}>Close account controls</Button>
-    {error && !invitation && !action && !remove && !revokeSessions && <p className="field-error" role="alert">{error}</p>}
+    {error && !invitation && !action && !rename && !remove && !revokeSessions && <p className="field-error" role="alert">{error}</p>}
     {notice && !invitation && <p role="status">{notice}</p>}
     {!loaded && <Button variant="secondary" disabled={authBusy} onClick={()=>void perform(load)}>{authBusy ? 'Loading account…' : 'Reload account'}</Button>}
     {credentials.map(credential=><div className="card stack" style={{padding:'1rem'}} key={credential.id}>
       <strong>{credential.name || 'Unnamed passkey'}{credential.current ? ' · Used to sign in here' : ''}</strong><span className="field-hint">Added {displayDate(credential.createdAt)} · Last used {displayDate(credential.lastUsedAt)}</span>
-      <Button variant="ghost" size="sm" disabled={authBusy || credentials.length < 2} aria-label={`Remove ${credentialLabel(credential)}`} onClick={()=>setRemove(credential)}>Remove{credential.name ? ` ${credential.name}` : ' passkey'}</Button>
+      <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>
+        <Button variant="ghost" size="sm" disabled={authBusy} aria-label={`Rename ${credentialLabel(credential)}`} onClick={()=>{setRenameDraft(credential.name||'');setRename(credential);}}>Rename</Button>
+        <Button variant="ghost" size="sm" disabled={authBusy || credentials.length < 2} aria-label={`Remove ${credentialLabel(credential)}`} onClick={()=>setRemove(credential)}>Remove{credential.name ? ` ${credential.name}` : ' passkey'}</Button>
+      </div>
     </div>)}
     {loaded && credentials.length < 2 && <p className="field-hint">Keep at least one passkey. Add a backup before removing your only passkey.</p>}
     <form className="stack" onSubmit={event=>{event.preventDefault();void perform(addPasskey);}}>
@@ -214,6 +219,11 @@ function PasskeyAccountDetails({ close }: { close: () => void }) {
       {error && <p className="field-error" role="alert">{error}</p>}
       <p>{action?.kind==='recover'?`Verify ${action.member.name}'s identity before continuing. This revokes their old passkeys, sessions and invitations, then provides a new enrollment link for the same permanent account. Their saved records remain attached to that account.`:action?.kind==='suspend'?`Suspend ${action.member.name} and revoke their access. Their saved records are preserved.`:`Revoke every outstanding enrollment link for ${action?.member.name}. Existing passkeys remain usable.`}</p>
       <Button busy={authBusy} onClick={()=>void perform(memberAction)}>{action?.kind==='recover'?'Identity verified — authorize recovery':action?.kind==='suspend'?'Verify passkey and suspend':'Verify passkey and revoke invitations'}</Button>
+    </Modal>
+    <Modal open={!!rename} onClose={()=>{if(!authBusy)setRename(null);}} title="Rename this passkey?" description="Requires passkey verification.">
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <Field label="Passkey name"><input className="input" value={renameDraft} onChange={event=>setRenameDraft(event.target.value)} maxLength={64} disabled={authBusy} autoComplete="off" data-autofocus/></Field>
+      <Button busy={authBusy} disabled={!renameDraft.trim() || renameDraft.trim()===rename?.name} onClick={()=>void perform(async()=>{if(!rename)return;await accountRequest('/api/auth/credentials/rename',{id:rename.id,name:renameDraft.trim()});if(!alive.current)return;setRename(null);setNotice('Passkey renamed.');await load();})}>Verify and rename</Button>
     </Modal>
     <Modal open={!!remove} onClose={()=>{if(!authBusy)setRemove(null);}} title="Remove this passkey?">
       {error && <p className="field-error" role="alert">{error}</p>}

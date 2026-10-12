@@ -325,6 +325,13 @@ passkeyRoutes.get('/credentials', async c => {
   // `current` marks the passkey that opened this session, so a list of identically named keys stays distinguishable.
   return c.json({ credentials: rows.map(row => ({ ...row, current: row.id === session.credential_id })) });
 });
+passkeyRoutes.post('/credentials/rename', async c => {
+  const { id, name } = await body(c, z.object({ id: credentialId, name: keyName }).strict());
+  const session = await sessionFor(c.req.raw, c.env, true);
+  const db = c.env.DB; const timestamp = now(); const check = random(); const owns = random();
+  await atomic(db, [sessionGuard(db, check, session, timestamp), guard(db, owns, 'EXISTS (SELECT 1 FROM auth_credentials WHERE id=? AND member_id=? AND revoked_at IS NULL)', [id, session.id]), stmt(db, 'UPDATE auth_credentials SET name=? WHERE id=?', name, id), audit(db, session.id, session.id, 'credential.renamed', timestamp)], [check, owns]);
+  return c.json({ ok: true });
+});
 passkeyRoutes.post('/credentials/revoke', async c => {
   const { id } = await body(c, z.object({ id: credentialId }).strict());
   const session = await sessionFor(c.req.raw, c.env, true);

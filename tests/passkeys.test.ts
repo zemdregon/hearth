@@ -554,6 +554,33 @@ describe('member rename and recolour', () => {
   });
 });
 
+describe('credential rename', () => {
+  it('allows a member to rename their own credential with fresh verification', async () => {
+    const { browser } = await active();
+    const result = await browser.request('/credentials/rename', { id: sqlite.prepare('SELECT id FROM auth_credentials').get()!.id as string, name: 'My MacBook' });
+    expect(result.status, await result.clone().text()).toBe(200);
+    expect(sqlite.prepare('SELECT name FROM auth_credentials').get()!.name).toBe('My MacBook');
+    expect(sqlite.prepare("SELECT event FROM auth_audit WHERE event='credential.renamed'").all()).toHaveLength(1);
+    expect(sqlite.prepare('SELECT * FROM auth_transaction_guards').all()).toEqual([]);
+  });
+  it('rejects renaming another member’s credential', async () => {
+    const admin = await active(); member('sam', 'member'); const samToken = grant('sam'); const samKey = authenticator(); const samBrowser = new Browser();
+    await enroll(samBrowser, samKey, samToken); await login(samBrowser, samKey, sqlite.prepare("SELECT user_handle FROM auth_members WHERE id='sam'").get()!.user_handle as string);
+    const samCredId = sqlite.prepare("SELECT id FROM auth_credentials WHERE member_id='sam'").get()!.id as string;
+    expect((await admin.browser.request('/credentials/rename', { id: samCredId, name: 'Stolen Name' })).status).toBe(409);
+    expect(sqlite.prepare("SELECT name FROM auth_credentials WHERE id=?").get(samCredId)!.name).toBe('My device');
+  });
+  it('requires fresh passkey verification', async () => {
+    const { browser } = await active();
+    sqlite.prepare('UPDATE auth_sessions SET reauthenticated_at=NULL').run();
+    expect((await browser.request('/credentials/rename', { id: sqlite.prepare('SELECT id FROM auth_credentials').get()!.id as string, name: 'Should Fail' })).status).toBe(403);
+  });
+  it('rejects an unknown or revoked credential id', async () => {
+    const { browser } = await active();
+    expect((await browser.request('/credentials/rename', { id: 'nonexistent123456789012345678901234567890123', name: 'Ghost' })).status).toBe(409);
+  });
+});
+
 describe('canonical deployment, CSRF and resource bounds', () => {
   it('adds browser bindings without rewriting sessions in an already-applied runtime database', () => {
     const legacy = new DatabaseSync(':memory:');
