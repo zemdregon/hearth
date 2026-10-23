@@ -153,6 +153,7 @@ test('empty and exact page-size boundaries never produce an empty or negative pa
       await expect(page.locator('.recipe-card')).toHaveCount(count);
       await expect(topPages(page)).toHaveCount(0);
     } else {
+      await expect(topPages(page)).toContainText(` of ${count} recipes`);
       while (await nextPage(page).isEnabled()) await nextPage(page).click();
       const lastPage = Math.ceil(count / 24);
       await expect(topPages(page)).toContainText(`Page ${lastPage} of ${lastPage}`);
